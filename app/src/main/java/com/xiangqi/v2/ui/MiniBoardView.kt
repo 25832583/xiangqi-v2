@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.View
@@ -13,10 +12,10 @@ import com.xiangqi.v2.core.Move
 import com.xiangqi.v2.core.Side
 
 /**
- * 面板里的小棋盘：自绘 10 行 × 9 列的格线、九宫、棋子，以及**推荐着法的箭头**。
+ * 面板里的小棋盘：自绘 10 行 × 9 列的格线、九宫、棋子，以及**推荐着法的标记**。
  *
  * 为什么要有它：文字写着「炮二平五」，用户还得自己在棋盘上找那个炮在哪、要走到哪一格。
- * 一个箭头省掉这一步 —— 尤其残局里子少位偏，读记谱比看箭头慢得多。
+ * 一个标记省掉这一步 —— 尤其残局里子少位偏，读记谱比看标记慢得多。
  *
  * 为什么画在面板里而不是盖在真实棋盘上：悬浮窗会挡住棋盘，面板展开期间盯盘是暂停的，
  * 所以这里画的是**已采纳的那个盘面**，不存在"跟手不跟手"的问题。真要盖在游戏棋盘上，
@@ -55,25 +54,17 @@ class MiniBoardView(context: Context) : View(context) {
         typeface = Typeface.DEFAULT_BOLD
     }
 
-    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    /** 着法标记：四角框。颜色取自 JJ象棋 自己的"上一手"标记（深蓝），见 [MarkerGeometry]。 */
+    private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = dp(2.2f)
-        strokeCap = Paint.Cap.ROUND
-        color = ACCENT
+        // 1.5dp：参考图换算过来约 0.7dp，但那是木色棋盘、格距是这里的三倍。
+        // 面板是暗底 + 20dp 小格，再细就糊在格线里了（格线 0.9dp）。
+        strokeWidth = dp(1.5f)
+        strokeCap = Paint.Cap.SQUARE
+        color = MARKER
     }
 
-    private val arrowHead = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = ACCENT
-    }
-
-    private val targetRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = dp(1.6f)
-        color = ACCENT
-    }
-
-    /** 低置信标记：琥珀色虚线。形状与箭头/起点圈都不同，不会被误读成着法提示。 */
+    /** 低置信标记：青色虚线圆。形状与四角框完全不同，不会被误读成着法提示。 */
     private val uncertainRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1.3f)
@@ -99,11 +90,9 @@ class MiniBoardView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        val padX = dp(2f)
-        val padY = dp(2f)
-        val cellW = (width - 2 * padX) / (Board.COLS - 1)
-        val cellH = (height - 2 * padY) / (Board.ROWS - 1)
-        val cell = minOf(cellW, cellH)
+        // 格距按「列数 / 行数」算，不是「列数-1」：九宫格线只占 8×9 个间距，但四周要各留
+        // **半格**给四角框 —— 否则边线上的帅、车，框朝外的一半会被 View 边缘裁掉。
+        val cell = minOf(width.toFloat() / Board.COLS, height.toFloat() / Board.ROWS)
         if (cell <= 0f) return
 
         val gridW = cell * (Board.COLS - 1)
@@ -118,7 +107,7 @@ class MiniBoardView(context: Context) : View(context) {
 
         val current = board ?: return
         drawPieces(canvas, current, cell, ::cx, ::cy)
-        move?.let { drawArrow(canvas, it, cell, ::cx, ::cy) }
+        move?.let { drawMarker(canvas, it, cell, ::cx, ::cy) }
     }
 
     /** 格线：两侧纵线通到底，中间七条在河界断开；再补两个九宫的斜线。 */
@@ -185,68 +174,52 @@ class MiniBoardView(context: Context) : View(context) {
     }
 
     /**
-     * 推荐着法的箭头：起点画一个空心圈（"这枚子"），终点画箭头三角。
+     * 推荐着法的标记：起点与落点各画一个四角框（样式对齐 JJ象棋 自己的"上一手"标记）。
      *
-     * 起终点默认停在棋子外沿 —— 线画进棋子圆里会让文字糊掉，而记谱里"起点是什么子"
-     * 和"落在哪一格"恰恰是两件都要看清的事。
+     * 为什么不再画箭头：小棋盘格距只有约 20dp，走一格时两端让完只剩 1.4dp 中线 ——
+     * 为了不让它消失，之前堆了一串让出量上限、最小中线、头长随可见长度缩的补丁。
+     * 四角框没有这个问题：**形状与走法长度无关**，走一格和三格画出来一样大，
+     * 也就不存在"太短画不出"那条代码路径（那正是"有时画有时不画"的来源）。
      *
-     * **但"停在棋子外沿"不能无条件执行**：走一格时两圆之间只剩 0.16 个格距（≈3dp），
-     * 两端都按「半径 + 1dp」让完是负长度，箭头连起点圈都会被丢掉。让出量带上限、
-     * 允许压进圆边约 2dp（仍在汉字外沿之外）这件事交给 [ArrowGeometry] 算。
+     * 方向仍然读得出来：两格里**有我们棋子**的那格是起点。落点是敌方子（吃子）按颜色
+     * 分得清，落点空着更不会有歧义 —— 所以不需要三角头。
+     *
+     * 框画在棋子外面（半边长 0.47 格 > 棋子半径 0.42 格），不压汉字。
      */
-    private fun drawArrow(
+    private fun drawMarker(
         canvas: Canvas,
         move: Move,
         cell: Float,
         cx: (Int) -> Float,
         cy: (Int) -> Float
     ) {
-        val fromX = cx(move.fromCol)
-        val fromY = cy(move.fromRow)
-        val toX = cx(move.toCol)
-        val toY = cy(move.toRow)
+        val halfSide = MarkerGeometry.halfSide(cell)
+        val arm = MarkerGeometry.armOf(halfSide)
+        frame(canvas, cx(move.fromCol), cy(move.fromRow), halfSide, arm)
+        frame(canvas, cx(move.toCol), cy(move.toRow), halfSide, arm)
+    }
 
-        val dx = toX - fromX
-        val dy = toY - fromY
-        val length = kotlin.math.hypot(dx, dy)
-        val radius = cell * PIECE_RADIUS_RATIO
-        val layout = ArrowGeometry.layout(
-            length = length,
-            radius = radius,
-            edgeGap = dp(1f),
-            minShaft = dp(8f),
-            maxHead = dp(6f)
-        ) ?: return
-        val ux = dx / length
-        val uy = dy / length
-
-        val startX = fromX + ux * layout.margin
-        val startY = fromY + uy * layout.margin
-        val endX = toX - ux * layout.margin
-        val endY = toY - uy * layout.margin
-
-        // 起点圈：标出"走的是这枚子"
-        canvas.drawCircle(fromX, fromY, radius + dp(1.2f), targetRing)
-        canvas.drawLine(startX, startY, endX, endY, arrowPaint)
-
-        val head = layout.head
-        val halfWidth = layout.halfWidth
-        val path = Path().apply {
-            moveTo(endX, endY)
-            lineTo(endX - ux * head - uy * halfWidth, endY - uy * head + ux * halfWidth)
-            lineTo(endX - ux * head + uy * halfWidth, endY - uy * head - ux * halfWidth)
-            close()
+    /** 在 (x, y) 这个格点上画四角框。 */
+    private fun frame(canvas: Canvas, x: Float, y: Float, halfSide: Float, arm: Float) {
+        for (s in MarkerGeometry.corners(x, y, halfSide, arm)) {
+            canvas.drawLine(s.x1, s.y1, s.x2, s.y2, markerPaint)
         }
-        canvas.drawPath(path, arrowHead)
     }
 
     private fun dp(value: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
 
     private companion object {
-        const val ACCENT = 0xFFFFD24A.toInt()
         /**
-         * 低置信标记色。刻意选青色：红方棋子是橙红、黑方是蓝灰、推荐着法是暖黄，
+         * 着法标记色，取自 JJ象棋 自己的"上一手"标记（原图 RGB #1A54D8）。
+         *
+         * 没有照抄原值：那个蓝是配木色棋盘调的，压在面板的 #1A1A1A 上对比度只有
+         * 2.3:1，1.6dp 的细线会糊掉。提亮到 #4C7DFF 后约 5:1，同色系但不发灰。
+         */
+        const val MARKER = 0xFF4C7DFF.toInt()
+
+        /**
+         * 低置信标记色。刻意选青绿：红方棋子是橙红、黑方是蓝灰、推荐着法是蓝，
          * 只有这个颜色不会被误读成"某方的棋子"或"某一手棋"。
          */
         const val WARN = 0xFF6FE3C4.toInt()
@@ -255,8 +228,7 @@ class MiniBoardView(context: Context) : View(context) {
 
         /**
          * 棋子半径 / 格距。0.42 是"棋子几乎贴在一起"的比例 —— 棋盘本来就小
-         * （格距约 21.8dp），再小就看不清字。代价是走一格时两圆之间几乎没空隙，
-         * 见 [drawArrow] 与 [ArrowGeometry]。
+         * （格距约 20dp），再小就看不清字。四角框按 0.47 格画，正好落在圆外一点点。
          */
         const val PIECE_RADIUS_RATIO = 0.42f
     }
