@@ -15,8 +15,14 @@ data class RecognitionConfig(
     val confidenceThreshold: Float = 0.25f,
     /** 同类别 NMS 的 IoU 门槛 */
     val iouThreshold: Float = 0.5f,
-    /** 少于这么多个棋子就认为这一帧不可用 */
-    val minPieces: Int = 6,
+    /**
+     * 少于这么多个棋子就认为这一帧不可用。
+     *
+     * 不能低于 3：一维格距/相位拟合（[AxisFitter]）至少需要 3 个不共线（不同格点）的点。
+     * 中国象棋合法残局可以只剩 2 子（双方将帅），但那种局面下拟合不出来，只能报“子太少”。
+     * 默认值取 3 是为了让正常残局（单车/单兵对将等）能继续识别，而不是当成“遮挡”。
+     */
+    val minPieces: Int = 3,
 
     /** 格距搜索范围：x 轴以「棋盘框宽 / 列数」为基准 */
     val pitchLoFactorX: Float = 0.95f,

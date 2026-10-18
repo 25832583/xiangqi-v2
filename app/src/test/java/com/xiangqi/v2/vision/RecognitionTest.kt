@@ -119,6 +119,23 @@ class AxisFitterTest {
     fun `点太少不给结果`() {
         assertEquals(null, AxisFitter.fit(floatArrayOf(10f, 20f), 5f, 30f))
     }
+
+    /** 这是 [RecognitionConfig.minPieces] 不能低于 3 的数学依据。 */
+    @Test
+    fun `3 个点可以拟合`() {
+        val values = floatArrayOf(10f, 30f, 50f) // pitch=20, phase=10
+        val fit = AxisFitter.fit(values, 15f, 25f)
+        assertNotNull(fit)
+        assertTrue("3 点拟合残差应接近 0，实际 ${fit!!.residual}", fit.residual < 0.01f)
+    }
+
+    @Test
+    fun `5 个点拟合残差接近 0`() {
+        val values = floatArrayOf(10f, 30f, 50f, 70f, 90f) // pitch=20, phase=10
+        val fit = AxisFitter.fit(values, 18f, 22f)
+        assertNotNull(fit)
+        assertTrue("5 点拟合残差应接近 0，实际 ${fit!!.residual}", fit.residual < 0.01f)
+    }
 }
 
 class GridSnapTest {

@@ -541,7 +541,7 @@ class MainActivity : Activity() {
                     imageResult.text = "找不到棋盘（候选 ${recognition.boardCandidates} 个）。请用完整包含九宫的截图。"
 
                 is RecognitionOutcome.TooFewPieces ->
-                    imageResult.text = "只认出 ${recognition.count} 颗子，可能截图裁剪过度或有遮挡。"
+                    imageResult.text = "只认出 ${recognition.count} 颗子，至少需要 3 颗棋子才能确定棋盘格线。"
 
                 is RecognitionOutcome.PoorGeometry ->
                     imageResult.text = "格线拟合失败：x 残差 %.2f / y 残差 %.2f 格，格距 %.1f / %.1f px。"
