@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">象棋助手 v2</string>
+    <string name="accessibility_label">象棋助手 v2 抓屏</string>
+    <string name="accessibility_description">仅用于截取屏幕画面以识别中国象棋盘面。本服务不读取任何界面文字，也不会上传任何数据。</string>
+</resources>

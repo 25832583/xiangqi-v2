@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 棋子剪影：外圈圆环 + 内圈细环 + 中心方块，缩到启动器尺寸仍然可辨 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFD24A"
+        android:pathData="M54,26C38.54,26 26,38.54 26,54s12.54,28 28,28 28,-12.54 28,-28S69.46,26 54,26zM54,32c12.15,0 22,9.85 22,22s-9.85,22 -22,22 -22,-9.85 -22,-22 9.85,-22 22,-22z" />
+    <path
+        android:fillColor="#FFFFD24A"
+        android:pathData="M54,40C46.27,40 40,46.27 40,54s6.27,14 14,14 14,-6.27 14,-14 -6.27,-14 -14,-14zM54,45c4.97,0 9,4.03 9,9s-4.03,9 -9,9 -9,-4.03 -9,-9 4.03,-9 9,-9z" />
+    <path
+        android:fillColor="#FFFFD24A"
+        android:pathData="M48,49h12v10h-12z" />
+</vector>

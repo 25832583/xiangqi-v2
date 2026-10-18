@@ -1,0 +1,32 @@
+# JJ象棋 真实对局截图真值（19 张，同一局对战 64强战）
+# 来源：D:/date，1280x2816 / 1440x3168 竖屏截图，开局到残局全覆盖，2 张红方在上
+
+# 可信度依据（三道独立验证，全部通过）：
+#  1. 两个独立训练的模型逐格完全一致 19/19：
+#     a) 旧 detector.onnx（YOLOv5 15类，他人训练）
+#     b) detector_yolov8_ft.onnx（合成3000+真实24张伪标签微调）
+#  2. 19/19 通过象棋强约束：将帅在位且列4/行0或9、士象绝对点位、
+#     兵卒不在己方底线、各类子数不超限
+#  3. 人工抽检 3 张（黑在上/残局/红在上）逐颗零错误，吸附残差 0.015~0.025 格
+
+# 仍未做：全量 19 张逐格人工核对。
+# 格式：文件名<TAB>FEN（row 0 = 画面顶部，大写=红方）
+0a1b8caa28288582094e918ee2fd9062.jpg	2baka3/5R3/2n1b4/p3p1C1p/9/1r7/P3C1c1N/4c4/9/RN1AKABr1 w
+1584f5cb159e84293f58b83f09976bfe.jpg	1rbakabnr/7R1/2n6/p3p1C1p/4c4/4C4/P1c3P2/6N2/4A4/RNBAK1B2 w
+1fa7f9d67e7f35312a89bf8b11fff4ee.jpg	rnbakabnr/9/1c2c4/p1p1p1p1p/9/9/P1P1P1P1P/2C4C1/9/RNBAKABNR w
+29dd836f502b9f4f9d16f928f5a7548b.jpg	2baka1nr/9/2n1b2R1/p3p1C1p/4c4/1r7/P3C1c1N/9/4A4/RNBAK1B2 w
+29efc266ff3fca745e7bbef31e94e51d.jpg	2baka2r/5n3/2n1bR3/p3p1C1p/4c4/1r7/P3C1c1N/9/4A4/RNBAK1B2 w
+3b75ba61292f254cad65afa02d195044.jpg	rnbakabnr/9/9/p3p1C1p/9/7C1/P1P1c1P1P/9/9/RNBAKABNR w
+49207b96b195094e87309650bdee940b.jpg	R3KAB2/4A4/1CN1BC2N/P1P1P1P1P/7R1/2p2cp2/p3p3p/4c1n2/9/rnbakab1r w
+4e13955b177ef0e08c4dffa3916847b9.jpg	2baka1r1/5R3/2n1b4/p3p1C1p/4c4/1r7/P3C1c1N/9/4A4/RNBAK1B2 w
+4fed515fa208d02ef545b938479a5c86.jpg	2bakabnr/7R1/2n6/p3p1C1p/4c4/1r7/P1c1C1P2/6N2/4A4/RNBAK1B2 w
+53915908ada513c74642ca2da4b48612.jpg	2bakabnr/9/2n4R1/p3p1C1p/4c4/1r7/P3C1c2/6N2/4A4/RNBAK1B2 w
+85973081a6ab8c3527dcc887764205ce.jpg	2baka1nr/9/2n1b2R1/p3p1C1p/4c4/1r7/P3C1c2/6N2/4A4/RNBAK1B2 w
+a50fbe7c1d591b3884f2abbde382a5e1.jpg	rnbakabnr/9/1c2c4/p1C1p1p1p/9/9/P1P1P1P1P/7C1/9/RNBAKABNR w
+c4eaa754211b7cec1f5529336404a784.jpg	2baka3/5R3/2n1b4/p3p3p/9/4C4/Pr4c1N/4c4/9/RN1AKAC2 w
+d2c5b26f7e6ee90c9a899e7aec4f0dce.jpg	2baka3/5R3/2n1b4/p3p1C1p/4c4/1r7/P3C1c1N/4B4/4A4/RN1AK1Br1 w
+d555c16b038ae2f268fb303ca6c33fb0.jpg	r1bakabnr/9/2n6/p3p1C1p/4c4/4C4/P1c3P2/6N2/4A4/RNBAK1BR1 w
+d97edf3061c7d9565efdd4d9c55a24d8.jpg	2baka3/5R3/2n1b4/p3p3p/9/4C4/Pr2c3N/4c4/9/RN1AKAC2 w
+dd5b743217894e51c7fe8c344ddfcc01.jpg	r1bakabnr/9/2n6/p3p1C1p/4c4/4C4/P1P1c1P1P/6N2/9/RNBAKAB1R w
+de5cf3da7cc48b540e9b253b4d12f289.jpg	R2AKABNR/9/1CN1B2C1/P1P1P1P1P/9/9/p1p1p1p1p/4c2c1/9/rnbakabnr w
+fece52b832b48353cb73d78e4b379371.jpg	rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w

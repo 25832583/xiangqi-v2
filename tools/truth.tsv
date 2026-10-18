@@ -1,0 +1,9 @@
+﻿# 真实截图逐张真值（人工读图登记）
+# 格式：文件名<TAB>FEN   —— row 0 = 画面顶部，大写=红方
+# 说明：labeled_opening 目录名叫"开局"，但其中 4 张的红相已走到中路（教学提示态），
+#      只有 bd3b3a7e 是标准开局。按逐张真值验收，不要再用"开局=固定阵型"的假设。
+3f95e43bb10410526aeac3b39e86a532.jpg	RNBAKA1NR/9/1C2B2C1/P1P1P1P1P/9/9/p1p1p1p1p/1c5c1/9/rnbakabnr
+56dd3c228aca278903de8296221ae22d.jpg	RNBAKA1NR/9/1C2B2C1/P1P1P1P1P/9/9/p1p1p1p1p/1c5c1/9/rnbakabnr
+41e01603601baefa1f23f18fa1dc7ca9.png	RNBAKA1NR/9/1C2B2C1/P1P1P1P1P/9/9/p1p1p1p1p/1c5c1/9/rnbakabnr
+ae2045f51f99531316722d60880598fb.png	RNBAKA1NR/9/1C2B2C1/P1P1P1P1P/9/9/p1p1p1p1p/1c5c1/9/rnbakabnr
+bd3b3a7eb2c8e8e442f99387838b1732.jpg	RNBAKABNR/9/1C5C1/P1P1P1P1P/9/9/p1p1p1p1p/1c5c1/9/rnbakabnr

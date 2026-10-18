@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    无障碍服务配置。
+
+    canTakeScreenshot 是 API 30 起 takeScreenshot() 的前置声明，没有它调用会直接抛异常。
+    canRetrieveWindowContent 保持开启只是因为部分系统版本在截图链路里会顺带校验它，
+    本服务从不读取控件内容（onAccessibilityEvent 是空实现）。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
+    android:description="@string/accessibility_description"
+    android:notificationTimeout="100" />

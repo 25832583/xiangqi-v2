@@ -1,0 +1,59 @@
+package com.xiangqi.v2.engine
+
+import com.xiangqi.v2.core.Move
+
+/**
+ * 一次引擎分析的结论。
+ *
+ * @param bestMove 引擎给出的最佳走法；引擎没给出（无着可走/搜索失败）时为 null
+ * @param scoreCp  评分，单位「厘兵」（centipawn），正数对红方有利
+ * @param mateIn   杀棋步数，正数表示红方将杀，负数表示黑方将杀
+ * @param pv       主变，从最佳走法开始的连续着法
+ * @param depth    实际搜索到的深度
+ */
+data class EngineAnalysis(
+    val bestMove: Move?,
+    val bestMoveUci: String,
+    val scoreCp: Int?,
+    val mateIn: Int?,
+    val pv: List<String>,
+    val depth: Int
+) {
+    val hasMove: Boolean get() = !bestMoveUci.isNullOrEmpty()
+
+    val scoreText: String
+        get() = when {
+            mateIn != null -> "杀 ${Math.abs(mateIn)} 步"
+            scoreCp != null -> String.format(java.util.Locale.US, "%+.2f", scoreCp / 100.0)
+            else -> ""
+        }
+}
+
+/** 分析失败的原因，调用方据此给出不同提示。 */
+class EngineException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * 局面分析引擎。
+ *
+ * 现有实现是本地跑皮卡鱼（UCI 协议）。抽成接口的意义：
+ *  - 换成别的 UCI 引擎（旋风、佳佳）不改上层；
+ *  - 换成**远程分析服务**也只是多一个实现 —— 移动端算力有限，这是很可能要走的一步；
+ *  - 测试时可以塞一个「固定返回某走法」的假引擎，整条编排链路都能离线跑。
+ */
+interface AnalysisEngine {
+
+    val name: String
+
+    /** 引擎当前是否可用（进程已起、握手完成）。 */
+    val ready: Boolean
+
+    /**
+     * 分析局面。
+     * @param fen       完整 FEN（含走子方）
+     * @param depth     目标深度
+     * @param moveTimeMs 思考时间上限，兜底用
+     */
+    suspend fun analyze(fen: String, depth: Int, moveTimeMs: Int): EngineAnalysis
+
+    fun close()
+}

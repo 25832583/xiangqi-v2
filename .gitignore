@@ -1,0 +1,54 @@
+# Android / Gradle
+.gradle/
+build/
+app/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Python（离线工具链）
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 训练产物
+runs/
+*.pt
+*.onnx.bak
+tools/__pycache__/
+
+# 输出图（验收可视化，可重生成）
+out/
+tools/out/
+
+# ---- 二进制大件（体积太大，不入库）----
+# 运行必需的模型/引擎见下面「需要单独准备」清单，克隆后从旧工程或官方发布包拷回。
+*.onnx
+*.nnue
+app/src/main/assets/pikafish
+app/src/main/jniLibs/
+models/
+weights/
+
+# 需要单独准备（md5 已核，与 Pikafish-2026-01-02 官方包一致）：
+#   app/src/main/assets/detector_xqlink_v5.onnx    28.6MB  d346664b010e398b
+#   app/src/main/assets/pikafish                    1.77MB  2c18301dc98c9f25a39d9122b489edf3
+#   app/src/main/assets/pikafish.nnue               53.2MB  b5c9619b0e40d3c5
+#   app/src/main/jniLibs/arm64-v8a/libpikafish.so   1.77MB  与 assets/pikafish 逐位相同
+#   ⚠️ 引擎与权重是绑定的一对，只换其中一个会让引擎 exit 1。
+
+# ---- 评测集图片（63MB；truth.tsv / cluster_labels.json 等元数据仍入库）----
+# 文件名本身就是 md5（如 49207b96b195094e87309650bdee940b.jpg），
+# 需要复原时按 md5 从原始截图目录找回即可，因此不入库不丢信息。
+testsets/*/img/
+testsets/*/_verify/
+testsets/**/*.jpg
