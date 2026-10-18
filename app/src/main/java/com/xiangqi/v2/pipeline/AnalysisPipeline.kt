@@ -178,6 +178,18 @@ class AnalysisPipeline(
         }
     }
 
+    /**
+     * 打断正在进行的搜索。
+     *
+     * 盘面已经变了，旧局面的结论不再有参考价值，而一次搜索是秒级（默认 2500ms）。
+     * 不打断的代价是：用户走一步棋之后，得先等**上一手**的搜索跑完才有反应。
+     *
+     * 拿到的是[浅结果]，调用方必须丢弃 —— 它不是对当前局面的分析。
+     */
+    fun interruptCurrent() {
+        runCatching { engine?.requestStop() }
+    }
+
     fun close() {
         releaseEngine()
         runCatching { recognizer.close() }

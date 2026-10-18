@@ -55,5 +55,17 @@ interface AnalysisEngine {
      */
     suspend fun analyze(fen: String, depth: Int, moveTimeMs: Int): EngineAnalysis
 
+    /**
+     * 让当前这次搜索**尽快收尾**（不是取消协程）。
+     *
+     * 存在的理由：盘面在下一次识别后已经变了，旧局面的结论再准也没用，但一次搜索的
+     * 时间上限是秒级（默认 2500ms）。不打断的话，用户走一步棋之后要先把**上一手**的
+     * 搜索等完，才有反应 —— 这比算得浅一点恼人得多。
+     *
+     * 实现约定：调完它，正在进行的 [analyze] 应当很快返回（可能是一个很浅的结果），
+     * 由调用方丢弃。默认空实现，不支持中断的引擎继续按 moveTime 正常返回。
+     */
+    fun requestStop() {}
+
     fun close()
 }

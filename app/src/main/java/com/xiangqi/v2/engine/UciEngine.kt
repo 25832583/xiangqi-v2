@@ -41,7 +41,29 @@ class UciEngine(
     @Volatile
     private var started = false
 
+    /**
+     * 此刻是否有一条搜索在跑（`go` 已写出去、`bestmove` 还没读到）。
+     *
+     * 只用来决定「要不要发 stop」：引擎**没在搜索时收到 stop 会忽略它**，但那并不意味着
+     * 随便发是安全的 —— 万一 stop 与 go 交错到达，stop 先到就会被忽略、这次搜索白等
+     * 满 moveTime；更糟的是如果引擎对空闲状态回了什么，管道里就多出一行没人读的输出。
+     * 所以 `position` + `go` + 置位这三步放在同一把锁里，保证 stop 只可能出现在 go 之后。
+     */
+    private val searchLock = Any()
+
+    @Volatile
+    private var searching = false
+
+    /** 写管道的锁。stop 来自另一个线程，两个线程同时 write 会把命令切碎。 */
+    private val writeLock = Any()
+
     override val ready: Boolean get() = started
+
+    override fun requestStop() {
+        if (!searching) return
+        Log.i(tag, "收到中断请求，向引擎发 stop")
+        send("stop")
+    }
 
     /** 启动引擎并完成 UCI 握手。失败抛 [EngineException]。 */
     @Synchronized
@@ -122,9 +144,12 @@ class UciEngine(
         }
         val input = reader ?: throw engineFailure(fen, "引擎未就绪")
         recentLines.clear()
-        send("position fen $fen")
         // movetime 兜底：复杂局面即使没算到指定深度也会按时返回，避免长时间卡住
-        send("go depth $depth movetime $moveTimeMs")
+        synchronized(searchLock) {
+            send("position fen $fen")
+            send("go depth $depth movetime $moveTimeMs")
+            searching = true
+        }
 
         var bestMoveUci = ""
         var scoreCp: Int? = null
@@ -133,34 +158,40 @@ class UciEngine(
         var depthSeen = 0
         val deadline = System.currentTimeMillis() + moveTimeMs + IDLE_GRACE_MS
 
-        loop@ while (true) {
-            // 用 ready() 轮询替代 readLine() 阻塞，保证整体可超时
-            while (!input.ready()) {
-                if (System.currentTimeMillis() > deadline) {
-                    // 安全网：引擎异常卡死时停止搜索并丢弃到 bestmove 的残留输出
-                    runCatching { send("stop") }
-                    drainUntilBestMove()
-                    break@loop
+        try {
+            loop@ while (true) {
+                // 用 ready() 轮询替代 readLine() 阻塞，保证整体可超时
+                while (!input.ready()) {
+                    if (System.currentTimeMillis() > deadline) {
+                        // 安全网：引擎异常卡死时停止搜索并丢弃到 bestmove 的残留输出
+                        runCatching { send("stop") }
+                        drainUntilBestMove()
+                        break@loop
+                    }
+                    Thread.sleep(POLL_INTERVAL_MS)
                 }
-                Thread.sleep(POLL_INTERVAL_MS)
+                val line = input.readLine() ?: break
+                if (line.startsWith("bestmove")) {
+                    bestMoveUci = line.trim().split(WHITESPACE).getOrNull(1) ?: ""
+                    break
+                }
+                val info = parseUciInfo(line)
+                if (info != null && !info.isEmpty) {
+                    scoreCp = info.scoreCp ?: scoreCp
+                    mateIn = info.mateIn ?: mateIn
+                    depthSeen = info.depth ?: depthSeen
+                    pv = info.pv ?: pv
+                } else {
+                    // 落到这里的包括 `info string …` —— 引擎的提示与**错误就在这一类里**
+                    // （权重不兼容、参数非法、内部异常）。老实现按行首 `info` 分流，把它们
+                    // 喂给解析器后丢弃，故障信息于是只剩「无输出」。
+                    remember(line)
+                }
             }
-            val line = input.readLine() ?: break
-            if (line.startsWith("bestmove")) {
-                bestMoveUci = line.trim().split(WHITESPACE).getOrNull(1) ?: ""
-                break
-            }
-            val info = parseUciInfo(line)
-            if (info != null && !info.isEmpty) {
-                scoreCp = info.scoreCp ?: scoreCp
-                mateIn = info.mateIn ?: mateIn
-                depthSeen = info.depth ?: depthSeen
-                pv = info.pv ?: pv
-            } else {
-                // 落到这里的包括 `info string …` —— 引擎的提示与**错误就在这一类里**
-                // （权重不兼容、参数非法、内部异常）。老实现按行首 `info` 分流，把它们
-                // 喂给解析器后丢弃，故障信息于是只剩「无输出」。
-                remember(line)
-            }
+        } finally {
+            // 无论正常结束、超时兜底还是抛异常，都必须把"正在搜索"放掉，
+            // 否则之后每次 requestStop 都会往空闲的引擎里灌一条无用的 stop
+            searching = false
         }
         if (bestMoveUci.isEmpty()) {
             throw engineFailure(fen, if (proc.isAlive) "引擎未给出着法" else "引擎进程已退出")
@@ -220,11 +251,13 @@ class UciEngine(
 
     private fun send(command: String) {
         val out = writer ?: return
-        runCatching {
-            out.write(command)
-            out.write("\n")
-            out.flush()
-        }.onFailure { Log.w(tag, "引擎写入失败: $command", it) }
+        synchronized(writeLock) {
+            runCatching {
+                out.write(command)
+                out.write("\n")
+                out.flush()
+            }.onFailure { Log.w(tag, "引擎写入失败: $command", it) }
+        }
     }
 
     /**
@@ -270,6 +303,7 @@ class UciEngine(
         process = null
         writer = null
         reader = null
+        searching = false
         recentLines.clear()
         started = false
     }
