@@ -16,6 +16,8 @@ sealed class RecognitionOutcome {
         val fitY: AxisFit,
         val pieceDetections: Int,
         val anchor: AnchorResult,
+        /** 见 [RecognitionReport]：日志行 + 需要高亮的低置信格。由调用方在采纳时使用。 */
+        val report: RecognitionReport.Report = RecognitionReport.Report.EMPTY,
         override val elapsedMs: Long
     ) : RecognitionOutcome()
 
@@ -105,7 +107,19 @@ class BoardRecognizer(
         }
 
         val assembly = BoardAssembler.assemble(candidates, anchor.colOffset, anchor.rowOffset)
-        RecognitionOutcome.Success(assembly, fitX, fitY, pieces.size, anchor, elapsed())
+        // 报告在这里算好、由调用方在「采纳新盘面」时打印 —— 识别层不知道这一帧会不会
+        // 被上层丢掉，每帧都打印会把 logcat 刷满（700ms 一条）
+        val report = RecognitionReport.build(
+            assembly = assembly,
+            candidates = candidates,
+            fitX = fitX,
+            fitY = fitY,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            colOffset = anchor.colOffset,
+            rowOffset = anchor.rowOffset
+        )
+        RecognitionOutcome.Success(assembly, fitX, fitY, pieces.size, anchor, report, elapsed())
     }
 
     private fun aspectOk(box: Box): Boolean {

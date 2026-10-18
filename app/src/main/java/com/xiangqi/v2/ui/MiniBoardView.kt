@@ -2,6 +2,7 @@ package com.xiangqi.v2.ui
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
@@ -29,6 +30,9 @@ class MiniBoardView(context: Context) : View(context) {
     private var board: Board? = null
     private var move: Move? = null
     private var side: Side = Side.RED
+
+    /** 置信度偏低的格子（`row * 9 + col`），画虚线圈提醒「这颗可能认错了」。 */
+    private var uncertain: Set<Int> = emptySet()
 
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -69,17 +73,26 @@ class MiniBoardView(context: Context) : View(context) {
         color = ACCENT
     }
 
+    /** 低置信标记：琥珀色虚线。形状与箭头/起点圈都不同，不会被误读成着法提示。 */
+    private val uncertainRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1.3f)
+        color = WARN
+        pathEffect = DashPathEffect(floatArrayOf(dp(2.5f), dp(2f)), 0f)
+    }
+
     init {
         // 这个 View 只负责画，不接收事件：面板本身已经是 NOT_FOCUSABLE 的悬浮窗，
         // 让它可点只会和面板的拖动/点击抢事件
         isClickable = false
     }
 
-    fun show(board: Board?, move: Move?, side: Side) {
-        if (board === this.board && move == this.move && side == this.side) return
+    fun show(board: Board?, move: Move?, side: Side, uncertain: Set<Int> = emptySet()) {
+        if (board === this.board && move == this.move && side == this.side && uncertain == this.uncertain) return
         this.board = board
         this.move = move
         this.side = side
+        this.uncertain = uncertain
         invalidate()
     }
 
@@ -161,6 +174,12 @@ class MiniBoardView(context: Context) : View(context) {
                 pieceText.color = tint
                 val baseline = y - (pieceText.descent() + pieceText.ascent()) / 2f
                 canvas.drawText(piece.displayName, x, baseline, pieceText)
+
+                if (row * Board.COLS + col in uncertain) {
+                    // 虚线圈落在棋子圆环外侧一点点：压在里面会和棋子边框混成实线，
+                    // 用户会以为那只是样式，不会想到是警告
+                    canvas.drawCircle(x, y, radius + dp(1.6f), uncertainRing)
+                }
             }
         }
     }
@@ -226,6 +245,11 @@ class MiniBoardView(context: Context) : View(context) {
 
     private companion object {
         const val ACCENT = 0xFFFFD24A.toInt()
+        /**
+         * 低置信标记色。刻意选青色：红方棋子是橙红、黑方是蓝灰、推荐着法是暖黄，
+         * 只有这个颜色不会被误读成"某方的棋子"或"某一手棋"。
+         */
+        const val WARN = 0xFF6FE3C4.toInt()
         const val RED = 0xFFFF7A66.toInt()
         const val BLACK = 0xFFA9C0D6.toInt()
 

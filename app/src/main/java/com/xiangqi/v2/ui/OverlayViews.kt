@@ -322,7 +322,8 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
                 samePositionReanalyzing -> lastReadyMove
                 else -> null
             },
-            snapshot.side
+            snapshot.side,
+            snapshot.uncertain
         )
 
         val analysis = snapshot.analysis

@@ -36,6 +36,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 悬浮窗前台服务：**只做接线**。
@@ -80,7 +81,18 @@ class OverlayService : Service(), OverlayViews.Host {
             return
         }
 
-        watcher = BoardWatcher(graph.frameSource(), graph.pipeline, graph.settings)
+        watcher = BoardWatcher(
+            graph.frameSource(),
+            graph.pipeline,
+            graph.settings,
+            // 抓帧前必须把自己藏起来。缺了这一环，悬浮球（默认就停在左下角）
+            // 会被拍进每一帧：压在棋子上时那颗子只剩半个字形 —— 实测「相」的下半
+            // 被遮掉 40%，模型会翻成「红炮」，置信度从 0.93 掉到 0.49。用户看到的是
+            // 「相识别成炮了」，而真正的原因是自己的控件盖住了它。
+            captureShield = object : BoardWatcher.CaptureShield {
+                override suspend fun <T> withHidden(block: suspend () -> T): T = hideOverlayDuring(block)
+            }
+        )
 
         startForegroundCompat()
         showBubble()
@@ -147,6 +159,40 @@ class OverlayService : Service(), OverlayViews.Host {
         bubble = null
         bubbleParams = null
         hidePanel()
+    }
+
+    /**
+     * 抓帧期间把自己的窗口藏起来（[BoardWatcher.CaptureShield] 的实现）。
+     *
+     * 为什么必须做：无障碍截图拍的是系统合成结果，悬浮球和面板都在里面。
+     * 控件压在棋子上，那颗子就只剩半个字形 —— 实测「相」的下半被遮掉 40%，
+     * 模型会翻成「红炮」（0.93 → 0.49）。这类错误最坑的地方是：用户会去怀疑模型，
+     * 而真正的原因是我们的窗口挡在那儿。
+     *
+     * 两个细节：
+     *  - 用 `alpha = 0` 而不是 `removeView` + 重新 add：后者会让窗口 blink 一下，
+     *    每次抓帧都闪，而且重新 add 要重新走一遍权限与布局，代价远高于改个属性。
+     *  - 藏完要**等一小会儿**再抓：alpha 改动要经过一次合成才反映到截图上，
+     *    立刻抓还是能抓到旧帧。60ms 约 4 帧，够合成器走完一轮，对 700ms 的
+     *    扫描间隔来说可以忽略。
+     */
+    private suspend fun <T> hideOverlayDuring(block: suspend () -> T): T {
+        val views = listOfNotNull<View>(bubble, panel)
+        if (views.isEmpty()) return block()
+        // 改 View 属性只能在主线程：抓帧跑在 IO/Default 线程上，必须切回去
+        val previous = withContext(Dispatchers.Main) {
+            val saved = views.map { it.alpha }
+            views.forEach { it.alpha = 0f }
+            saved
+        }
+        return try {
+            delay(HIDE_SETTLE_MS)
+            block()
+        } finally {
+            withContext(Dispatchers.Main) {
+                views.forEachIndexed { index, view -> view.alpha = previous[index] }
+            }
+        }
     }
 
     /**
@@ -440,6 +486,15 @@ class OverlayService : Service(), OverlayViews.Host {
         private const val CHANNEL_ID = "xiangqi_overlay"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "com.xiangqi.v2.action.STOP"
+
+        /**
+         * 藏起悬浮窗后等多久再抓帧。
+         *
+         * alpha 改动要经过一次系统合成才反映到无障碍截图上，立刻抓仍然会抓到改之前
+         * 那一帧（实测这就是"藏了等于没藏"的原因）。60ms ≈ 4 帧，对 700ms 的扫描
+         * 间隔可以忽略，但足以让合成器走完一轮。
+         */
+        private const val HIDE_SETTLE_MS = 60L
 
         @Volatile
         var running: Boolean = false
