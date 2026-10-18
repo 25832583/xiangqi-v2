@@ -49,13 +49,17 @@ def dp(v):
 BOLD = ImageFont.truetype(FONT_PATH, 10)
 
 
-def draw_board(img, board, move):
+def draw_board(img, board, move, flipped=False):
     draw = ImageDraw.Draw(img)
     cell = min(W / 9, H / 10)
     grid_w, grid_h = cell * 8, cell * 9
     x0, y0 = (W - grid_w) / 2, (H - grid_h) / 2
-    cx = lambda col: x0 + col * cell
-    cy = lambda row: y0 + row * cell
+
+    # 与 BoardOrientation 同一套映射：翻的是坐标，不是画布（转画布会把汉字转倒）
+    drow = (lambda r: 9 - r) if flipped else (lambda r: r)
+    dcol = (lambda c: 8 - c) if flipped else (lambda c: c)
+    cx = lambda col: x0 + dcol(col) * cell
+    cy = lambda row: y0 + drow(row) * cell
 
     lw = max(1, round(dp(0.9)))
     for row in range(10):
@@ -65,8 +69,10 @@ def draw_board(img, board, move):
         if col in (0, 8):
             draw.line([(x, y0), (x, y0 + grid_h)], fill=GRID, width=lw)
         else:
-            draw.line([(x, y0), (x, cy(4))], fill=GRID, width=lw)
-            draw.line([(x, cy(5)), (x, y0 + grid_h)], fill=GRID, width=lw)
+            # 河界在 row 4 与 5 之间；翻过之后 cy(4) 在下面，必须按大小取
+            y_a, y_b = sorted((cy(4), cy(5)))
+            draw.line([(x, y0), (x, y_a)], fill=GRID, width=lw)
+            draw.line([(x, y_b), (x, y0 + grid_h)], fill=GRID, width=lw)
     for top in (0, 7):
         draw.line([(cx(3), cy(top)), (cx(5), cy(top + 2))], fill=GRID, width=lw)
         draw.line([(cx(5), cy(top)), (cx(3), cy(top + 2))], fill=GRID, width=lw)
@@ -93,18 +99,23 @@ def draw_board(img, board, move):
 
 def main():
     panels = [
-        # 元组是 (起点列, 起点行, 终点列, 终点行)
+        # 元组是 (起点列, 起点行, 终点列, 终点行, 是否翻 180°)
         ("马二进三（走日，两格以上）", (1, 9, 2, 7)),
         ("兵七进一（走一格，最挤的情况）", (2, 6, 2, 5)),
+        # 红在上 = 黑方用户的视角（平台上自己永远在下方）。棋盘、棋子、四角框
+        # 必须一起翻，只有标记翻了会画到反方向去。
+        ("红在上（黑方视角）· 炮八平五", (1, 7, 4, 7), True),
     ]
     gap, label_h = 24, 44
-    out = Image.new("RGB", (W * 2 + gap * 3, H + label_h + gap * 2), (12, 12, 12))
-    title = ImageFont.truetype(FONT_PATH, 22)
+    out = Image.new("RGB", (W * len(panels) + gap * (len(panels) + 1), H + label_h + gap * 2), (12, 12, 12))
+    title = ImageFont.truetype(FONT_PATH, 20)
     dr = ImageDraw.Draw(out)
-    for i, (label, move) in enumerate(panels):
+    for i, panel in enumerate(panels):
+        label, move = panel[0], panel[1]
+        flipped = len(panel) > 2 and panel[2]
         ox = gap + i * (W + gap)
         canvas = Image.new("RGB", (W, H), BG)
-        draw_board(canvas, parse(START), move)
+        draw_board(canvas, parse(START), move, flipped)
         out.paste(canvas, (ox, gap))
         dr.text((ox, gap + H + 8), label, font=title, fill=(220, 220, 220))
     out.save("out/_marker_preview.png")

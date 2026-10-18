@@ -352,7 +352,10 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
                 else -> null
             },
             snapshot.side,
-            snapshot.uncertain
+            snapshot.uncertain,
+            // 按「画面视角」画：用户在平台上自己永远在下方，红在上时（黑方用户）
+            // 面板也把红画在上面，这样面板和平台棋盘长得一模一样。
+            flipped = snapshot.redOnTop
         )
 
         val analysis = snapshot.analysis

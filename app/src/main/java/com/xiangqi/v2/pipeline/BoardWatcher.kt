@@ -66,7 +66,15 @@ data class WatchSnapshot(
      * 模型会翻成「红炮」，置信度从 0.93 掉到 0.49 —— 用户没有任何办法察觉。
      * 既然不能保证不错，至少要让它**看得见**。
      */
-    val uncertain: Set<Int> = emptySet()
+    val uncertain: Set<Int> = emptySet(),
+    /**
+     * 这一帧画面里红方是否在上（识别层判的，见 `BoardAssembler.redSideOnTop`）。
+     *
+     * 盘面内部一律是标准方向（红在下），但用户在平台上看到的是「自己在下」。
+     * 界面拿这个标志把小棋盘再翻一次，方向就与平台棋盘一致 —— 否则黑方用户
+     * 得在脑子里把整盘棋转 180°，走一格过去是往左还是往右全反。
+     */
+    val redOnTop: Boolean = false
 )
 
 /**
@@ -137,6 +145,9 @@ class BoardWatcher(
     /** 已采纳盘面里置信度偏低的格子，随盘面一起交给界面。 */
     private var acceptedUncertain: Set<Int> = emptySet()
 
+    /** 已采纳那一帧画面里红方是否在上。界面据此把小棋盘翻成「用户视角」。 */
+    private var acceptedRedOnTop: Boolean = false
+
     /** 稳定帧门槛（连带抖动兜底）。只由盯盘循环一个线程调用。 */
     private val stableGate = StableFrameGate(REQUIRED_STABLE_HITS, STALL_FORCE_MS)
 
@@ -168,6 +179,7 @@ class BoardWatcher(
     private var queuedSide: Side = Side.RED
     private var queuedRecognizeMs: Long = 0
     private var queuedUncertain: Set<Int> = emptySet()
+    private var queuedRedOnTop: Boolean = false
 
     /** 队列消费者是否在跑。与 [queuedBoard] 一起在同一把锁里改，避免"排了没人处理"。 */
     private var queueRunning = false
@@ -270,7 +282,7 @@ class BoardWatcher(
         if (board != null) {
             // 同一个盘面、不同走子方，最佳着法完全不同，必须重算
             failedKey = null
-            requestAnalysis(board, currentSide, uncertain = acceptedUncertain)
+            requestAnalysis(board, currentSide, uncertain = acceptedUncertain, redOnTop = acceptedRedOnTop)
         } else {
             emit(_state.value.copy(side = currentSide, message = hintForPhase(_state.value.phase, sideMode)))
         }
@@ -346,7 +358,7 @@ class BoardWatcher(
                     // 盘面没变：不重算，也不重复推状态 —— 每 700ms 推一次会让面板和通知
                     // 一直重绘（通知的 notify 尤其贵）。只有还没有结论时才补一次分析。
                     if (_state.value.analysis == null) {
-                        requestAnalysis(board, currentSide, recognizeMs, acceptedUncertain)
+                        requestAnalysis(board, currentSide, recognizeMs, acceptedUncertain, acceptedRedOnTop)
                     } else if (_state.value.phase != WatchPhase.READY) {
                         // 上一轮可能是「抓不到画面/找不到棋盘」的临时故障。画面恢复了、
                         // 盘面又和已采纳的一致，就该把结论还回去，而不是让错误提示一直挂着
@@ -375,7 +387,8 @@ class BoardWatcher(
                                         fen = Fen.encode(board, currentSide),
                                         board = board,
                                         side = currentSide,
-                                        recognizeMs = recognizeMs
+                                        recognizeMs = recognizeMs,
+                                        redOnTop = outcome.assembly.redOnTop
                                     )
                                 )
                                 return
@@ -490,6 +503,7 @@ class BoardWatcher(
                 acceptedBoard = board
                 acceptedKey = key
                 acceptedUncertain = outcome.report.uncertain
+                acceptedRedOnTop = outcome.assembly.redOnTop
                 failedKey = null
                 rejectStreak = 0
                 // 采纳成功必须清掉单帧判据的计数：不清的话，下一帧会立刻又触发强制放行
@@ -498,7 +512,7 @@ class BoardWatcher(
                 // 用户以后报「某颗子认成别的子」，一行日志就能对上号
                 outcome.report.lines.firstOrNull()?.let { Log.i(LogTags.RECOGNIZER, it) }
                 outcome.report.lines.drop(1).forEach { Log.w(LogTags.RECOGNIZER, it) }
-                requestAnalysis(board, currentSide, recognizeMs, acceptedUncertain)
+                requestAnalysis(board, currentSide, recognizeMs, acceptedUncertain, acceptedRedOnTop)
             }
 
             is RecognitionOutcome.NoBoard -> {
@@ -538,7 +552,8 @@ class BoardWatcher(
         board: Board,
         side: Side,
         recognizeMs: Long = 0,
-        uncertain: Set<Int> = emptySet()
+        uncertain: Set<Int> = emptySet(),
+        redOnTop: Boolean = false
     ) {
         val key = analysisKey(board, side)
         val superseding = synchronized(queueLock) {
@@ -549,6 +564,7 @@ class BoardWatcher(
             queuedSide = side
             queuedRecognizeMs = recognizeMs
             queuedUncertain = uncertain
+            queuedRedOnTop = redOnTop
             inFlight
         }
         if (superseding) {
@@ -591,7 +607,7 @@ class BoardWatcher(
                     // 取走时就把指纹钉上：这一轮结束前若同一个盘面又被排进来，
                     // requestAnalysis 会看到 analyzingKey 相同而直接略过
                     analyzingKey = analysisKey(board, queuedSide)
-                    AnalysisRequest(board, queuedSide, queuedRecognizeMs, queuedUncertain)
+                    AnalysisRequest(board, queuedSide, queuedRecognizeMs, queuedUncertain, queuedRedOnTop)
                 }
             } ?: return
 
@@ -603,7 +619,8 @@ class BoardWatcher(
                     board = next.board,
                     side = next.side,
                     recognizeMs = next.recognizeMs,
-                    uncertain = next.uncertain
+                    uncertain = next.uncertain,
+                    redOnTop = next.redOnTop
                 )
             )
 
@@ -629,7 +646,7 @@ class BoardWatcher(
                 Log.i(tag, "上一轮结论已过期（盘面又变了），丢弃")
                 continue
             }
-            publishAnalysis(next.board, next.side, next.recognizeMs, next.uncertain, outcome)
+            publishAnalysis(next.board, next.side, next.recognizeMs, next.uncertain, next.redOnTop, outcome)
         }
     }
 
@@ -639,6 +656,7 @@ class BoardWatcher(
         side: Side,
         recognizeMs: Long,
         uncertain: Set<Int>,
+        redOnTop: Boolean,
         outcome: AnalysisOutcome
     ) {
         when (outcome) {
@@ -652,7 +670,8 @@ class BoardWatcher(
                     analysis = outcome.analysis,
                     recognizeMs = recognizeMs,
                     analyzeMs = outcome.elapsedMs,
-                    uncertain = uncertain
+                    uncertain = uncertain,
+                    redOnTop = redOnTop
                 )
             )
 
@@ -672,7 +691,8 @@ class BoardWatcher(
         val board: Board,
         val side: Side,
         val recognizeMs: Long,
-        val uncertain: Set<Int>
+        val uncertain: Set<Int>,
+        val redOnTop: Boolean
     )
 
     // ---- 状态拼装 ----
@@ -684,7 +704,10 @@ class BoardWatcher(
         board = _state.value.board,
         side = currentSide,
         analysis = _state.value.analysis,
-        recognizeMs = recognizeMs
+        recognizeMs = recognizeMs,
+        // 故障只说明这一帧没读出来，盘面还是上一次那个 —— 方向也得跟着它，
+        // 否则报错的一瞬间棋盘会自己转 180°，看着像识别错乱了
+        redOnTop = _state.value.redOnTop
     )
 
     private fun failureSnapshot(reason: String, recognizeMs: Long) = WatchSnapshot(
@@ -693,7 +716,8 @@ class BoardWatcher(
         fen = _state.value.fen,
         board = _state.value.board,
         side = currentSide,
-        recognizeMs = recognizeMs
+        recognizeMs = recognizeMs,
+        redOnTop = _state.value.redOnTop
     )
 
     private fun hintForPhase(phase: WatchPhase, mode: SideMode): String = when (phase) {

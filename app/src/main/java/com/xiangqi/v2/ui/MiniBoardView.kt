@@ -21,14 +21,18 @@ import com.xiangqi.v2.core.Side
  * 所以这里画的是**已采纳的那个盘面**，不存在"跟手不跟手"的问题。真要盖在游戏棋盘上，
  * 得把识别出的棋盘几何映射回屏幕坐标，那是另一件事（也确实在计划里）。
  *
- * 坐标系直接用 [Board] 的约定：row 0 在顶部（黑方底线），col 0 在左侧。也就是红方在下，
- * 与残局截图的常见摆法一致，不需要 [Move.mirror180]。
+ * 坐标系用 [Board] 的约定：row 0 是黑方底线，col 0 是 a 线。但**画在屏幕上的位置**
+ * 还要过一次 [BoardOrientation]：用户在平台上下棋时自己永远在下方，黑方用户看到的
+ * 画面与标准方向差 180°，面板得按画面那个视角画，否则他得在脑子里转半圈。
  */
 class MiniBoardView(context: Context) : View(context) {
 
     private var board: Board? = null
     private var move: Move? = null
     private var side: Side = Side.RED
+
+    /** 是否按「画面视角」翻 180°（红方在上时翻）。见 [BoardOrientation]。 */
+    private var flipped: Boolean = false
 
     /** 置信度偏低的格子（`row * 9 + col`），画虚线圈提醒「这颗可能认错了」。 */
     private var uncertain: Set<Int> = emptySet()
@@ -78,12 +82,21 @@ class MiniBoardView(context: Context) : View(context) {
         isClickable = false
     }
 
-    fun show(board: Board?, move: Move?, side: Side, uncertain: Set<Int> = emptySet()) {
-        if (board === this.board && move == this.move && side == this.side && uncertain == this.uncertain) return
+    fun show(
+        board: Board?,
+        move: Move?,
+        side: Side,
+        uncertain: Set<Int> = emptySet(),
+        flipped: Boolean = false
+    ) {
+        if (board === this.board && move == this.move && side == this.side &&
+            uncertain == this.uncertain && flipped == this.flipped
+        ) return
         this.board = board
         this.move = move
         this.side = side
         this.uncertain = uncertain
+        this.flipped = flipped
         invalidate()
     }
 
@@ -100,8 +113,12 @@ class MiniBoardView(context: Context) : View(context) {
         val x0 = (width - gridW) / 2f
         val y0 = (height - gridH) / 2f
 
-        fun cx(col: Int) = x0 + col * cell
-        fun cy(row: Int) = y0 + row * cell
+        // 翻 180° 只改坐标映射，**不旋转画布** —— 旋转会把棋子上的汉字一起转倒。
+        // 好处是格线、棋子、四角框、低置信虚线圈全都走这两个函数，翻一次全体一致，
+        // 不会有「棋子翻了、标记没翻」这种只在某个局面上才暴露的错位。
+        val flip = flipped
+        fun cx(col: Int) = x0 + BoardOrientation.col(col, flip) * cell
+        fun cy(row: Int) = y0 + BoardOrientation.row(row, flip) * cell
 
         drawGrid(canvas, x0, y0, gridW, gridH, ::cx, ::cy)
 
@@ -128,9 +145,13 @@ class MiniBoardView(context: Context) : View(context) {
             if (col == 0 || col == Board.COLS - 1) {
                 canvas.drawLine(x, y0, x, y0 + gridH, gridPaint)
             } else {
-                // 中间七条纵线在河界断开，这是象棋棋盘的样子
-                canvas.drawLine(x, y0, x, cy(4), gridPaint)
-                canvas.drawLine(x, cy(5), x, y0 + gridH, gridPaint)
+                // 中间七条纵线在河界断开，这是象棋棋盘的样子。
+                // 河界是 row 4 与 row 5 之间那条带；翻过 180° 之后 cy(4) 跑到 cy(5) **下面**，
+                // 所以这两段必须按大小取，写死「先画到 cy(4)」会把河界画穿。
+                val yTop = minOf(cy(4), cy(5))
+                val yBottom = maxOf(cy(4), cy(5))
+                canvas.drawLine(x, y0, x, yTop, gridPaint)
+                canvas.drawLine(x, yBottom, x, y0 + gridH, gridPaint)
             }
         }
         // 九宫斜线：上下各一个 3×3 的米字格
