@@ -11,6 +11,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.xiangqi.v2.core.Move
+import com.xiangqi.v2.pipeline.GateMode
 import com.xiangqi.v2.pipeline.SideMode
 import com.xiangqi.v2.pipeline.WatchPhase
 import com.xiangqi.v2.pipeline.WatchSnapshot
@@ -92,6 +93,9 @@ object OverlayViews {
         fun onDepthDelta(delta: Int)
         fun onIntervalDelta(delta: Int)
         fun onToggleBoard()
+
+        /** 切「多帧确认 / 单帧即采」。两种都留着，是因为这件事取决于用户更忍不了哪一种。 */
+        fun onCycleGate()
         fun onMinimize()
         fun onStop()
     }
@@ -117,6 +121,7 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
     private val sideButton: TextView
     private val depthLabel: TextView
     private val intervalLabel: TextView
+    private val gateLabel: TextView
 
     /**
      * 上一次「出结论」的 FEN 与着法。
@@ -280,6 +285,23 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
         row3.addView(smallButton("快一点") { host.onIntervalDelta(-1) })
         addView(row3)
 
+        // ---- 第四排：采纳方式（多帧确认 / 单帧即采）----
+        // 做成一行「标签 + 切换」而不是设置页里的开关：这条是在**下棋时**才感觉到的东西，
+        // 让人切出去改设置、回来再试，等于感觉不到了。
+        val row4 = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6f), 0, 0)
+        }
+        gateLabel = TextView(context).apply {
+            setTextColor(TXT_DIM)
+            textSize = 12f
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+        }
+        row4.addView(gateLabel)
+        row4.addView(smallButton("切换") { host.onCycleGate() })
+        addView(row4)
+
         val hint = TextView(context).apply {
             setTextColor(0xFF5A5A5A.toInt())
             textSize = 10f
@@ -294,7 +316,14 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
         miniBoard.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
-    fun render(snapshot: WatchSnapshot, sideMode: SideMode, paused: Boolean, depth: Int, intervalMs: Int) {
+    fun render(
+        snapshot: WatchSnapshot,
+        sideMode: SideMode,
+        paused: Boolean,
+        depth: Int,
+        intervalMs: Int,
+        gateMode: GateMode
+    ) {
         statusDot.background = bg(colorOf(snapshot.phase), dp(4f).toFloat())
         statusText.text = buildString {
             append(snapshot.message)
@@ -356,6 +385,7 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
         sideButton.text = "轮次:${sideMode.label}"
         depthLabel.text = "深度 $depth"
         intervalLabel.text = "间隔 $intervalMs"
+        gateLabel.text = "采纳 ${gateMode.label}"
     }
 
     private fun colorOf(phase: WatchPhase): Int = when (phase) {

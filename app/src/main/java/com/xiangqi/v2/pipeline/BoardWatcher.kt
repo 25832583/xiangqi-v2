@@ -5,6 +5,7 @@ import android.util.Log
 import com.xiangqi.v2.capture.FrameSource
 import com.xiangqi.v2.config.SettingsStore
 import com.xiangqi.v2.core.Board
+import com.xiangqi.v2.core.BoardSanity
 import com.xiangqi.v2.core.Fen
 import com.xiangqi.v2.core.Side
 import com.xiangqi.v2.core.rule.StepResolver
@@ -77,6 +78,8 @@ data class WatchSnapshot(
  *    半路上——那个位置**不是**任何合法点位，但识别出来的盘面"错得很合理"，能一路走
  *    到引擎，用户看到的是一步莫名其妙的着法。等一帧就够，代价 700ms。
  *    画面逐帧都在抖时这道门槛永远凑不满，所以它带一条超时兜底（见 [StableFrameGate]）。
+ *    这道门槛可以关掉换成"单帧即采"（见 [GateMode] / [FastAcceptPolicy]）——
+ *    那是速度与稳妥的取舍，由用户按自己的耐心挑，我们只负责两种都别出错。
  * 2. **盘面没变就不重算**。引擎一次搜索是秒级，而画面在两步棋之间几秒到几十秒不变，
  *    不做这个判断会让 CPU 与电量全烧在重复计算同一个局面上。
  * 3. **同一局面只报一次失败**。识别出的盘面不合法时若每轮都重试，用户会看到提示
@@ -136,6 +139,17 @@ class BoardWatcher(
 
     /** 稳定帧门槛（连带抖动兜底）。只由盯盘循环一个线程调用。 */
     private val stableGate = StableFrameGate(REQUIRED_STABLE_HITS, STALL_FORCE_MS)
+
+    /**
+     * 「单帧即采」模式的判据（合法性与一步可达的两条否决线）。
+     *
+     * 与 [rejectStreak] 分开记：切模式时两边的连续计数语义不同，
+     * 共用一个计数器会出现「从多帧切到单帧，一进来就被强制放行」这种诡异现象。
+     */
+    private val fastPolicy = FastAcceptPolicy()
+
+    /** 上一轮用的采纳方式；用来发现用户刚切换过，并清掉另一套判据的残留状态。 */
+    private var activeGateMode: GateMode? = null
 
     // ---- 分析队列：最新盘面优先 ----
     //
@@ -220,6 +234,7 @@ class BoardWatcher(
             queueRunning = false
         }
         stableGate.reset()
+        fastPolicy.reset()
         scope = null
     }
 
@@ -272,6 +287,7 @@ class BoardWatcher(
         acceptedKey = null
         failedKey = null
         stableGate.reset()
+        fastPolicy.reset()
         rejectStreak = 0
         // 让循环先让路：否则用户点的这次识别会和循环里那次同时抓帧、同时送引擎，
         // 白烧一份 CPU，还可能把两次结果按不同顺序推给界面
@@ -291,6 +307,19 @@ class BoardWatcher(
     // ---- 循环主体 ----
 
     private suspend fun tick(force: Boolean = false) {
+        // 设置可能在面板里改，也可能在主界面改，而盯盘循环是唯一读它的地方 ——
+        // 每轮读一次，两个入口就自动一致，不需要谁去通知谁。
+        val gateMode = settings.gateMode
+        if (gateMode != activeGateMode) {
+            activeGateMode = gateMode
+            // 换判据就把两边的连续计数清掉：留着的话，新判据一进来就带着旧账
+            // （多帧那边可能还挂着一个几秒前的指纹，单帧那边可能已经攒了两次对不上）
+            stableGate.reset()
+            fastPolicy.reset()
+            rejectStreak = 0
+            Log.i(tag, "采纳方式：${gateMode.label}（${gateMode.note}）")
+        }
+
         if (_state.value.phase != WatchPhase.READY) {
             emit(WatchSnapshot(WatchPhase.CAPTURING, "正在抓屏…"))
         }
@@ -332,53 +361,63 @@ class BoardWatcher(
                     return
                 }
 
-                // 稳定帧门槛，连带「画面一直在抖」的兜底。
-                // 手动重新识别（force）不走这道：用户点它时等的就是一次新的判断。
+                // ---- 门槛一：要不要等第二帧（可切换）----
+                // 手动重新识别（force）两种模式都不走：用户点它时等的就是一次新的判断。
                 var bypassStepCheck = force
                 if (!force) {
-                    when (val decision = stableGate.offer(key, System.currentTimeMillis())) {
-                        is StableFrameGate.Decision.Waiting -> {
-                            emit(
-                                WatchSnapshot(
-                                    WatchPhase.WAITING_STABLE,
-                                    "画面变化中…（${decision.hits}/${decision.required}）",
-                                    fen = Fen.encode(board, currentSide),
-                                    board = board,
-                                    side = currentSide,
-                                    recognizeMs = recognizeMs
+                    if (gateMode == GateMode.STABLE) {
+                        when (val decision = stableGate.offer(key, System.currentTimeMillis())) {
+                            is StableFrameGate.Decision.Waiting -> {
+                                emit(
+                                    WatchSnapshot(
+                                        WatchPhase.WAITING_STABLE,
+                                        "画面变化中…（${decision.hits}/${decision.required}）",
+                                        fen = Fen.encode(board, currentSide),
+                                        board = board,
+                                        side = currentSide,
+                                        recognizeMs = recognizeMs
+                                    )
                                 )
-                            )
-                            return
-                        }
+                                return
+                            }
 
-                        is StableFrameGate.Decision.Forced -> {
-                            // 逐帧都在抖（走子动画、吃子粒子、倒计时数字）时指纹每帧都变，
-                            // 永远凑不出两帧相同。卡在这里等于局面永不更新、界面又不说原因。
-                            // 强制采纳，并且**跳过**下面的时序校验 —— 帧本来就不一样，
-                            // 用过一次就会被判成"与上一步对不上"，等于白采。
-                            bypassStepCheck = true
-                            Log.w(
-                                tag,
-                                "画面已持续抖动 ${decision.waitedMs}ms 仍凑不满 $REQUIRED_STABLE_HITS 帧相同，" +
-                                    "强制采纳本帧（防局面卡死）"
-                            )
-                        }
+                            is StableFrameGate.Decision.Forced -> {
+                                // 逐帧都在抖（走子动画、吃子粒子、倒计时数字）时指纹每帧都变，
+                                // 永远凑不出两帧相同。卡在这里等于局面永不更新、界面又不说原因。
+                                // 强制采纳，并且**跳过**下面的时序校验 —— 帧本来就不一样，
+                                // 用过一次就会被判成"与上一步对不上"，等于白采。
+                                bypassStepCheck = true
+                                Log.w(
+                                    tag,
+                                    "画面已持续抖动 ${decision.waitedMs}ms 仍凑不满 $REQUIRED_STABLE_HITS 帧相同，" +
+                                        "强制采纳本帧（防局面卡死）"
+                                )
+                            }
 
-                        is StableFrameGate.Decision.Stable -> Unit
+                            is StableFrameGate.Decision.Stable -> Unit
+                        }
+                    } else {
+                        // 单帧即采：不比对前后帧，本帧自己讲得通就采纳。
+                        // 顺手清掉多帧那套状态 —— 不清的话切回多帧模式时，
+                        // 会拿一个几秒前的指纹去凑「两帧相同」，白等一帧。
+                        stableGate.reset()
                     }
                 }
 
-                // 稳定门槛过了，但这只说明「连续两帧长得一样」，不说明这个盘面是对的。
-                // 一直把某个仕认成马时，两帧当然完全一样。所以再过一道：
+                // ---- 门槛二 / 三：这一步走得通吗 ----
+                // 「连续两帧长得一样」只说明帧没变，不说明这个盘面是对的：一直把某个仕
+                // 认成马时，两帧当然完全一样。所以再过一道：
                 // **这一帧能不能由上一帧走一步棋得到？**
                 // 认错种类（残留差异里出现「两格都有子但种类不同」）、凭空多一个子、
                 // 凭空少一个子 —— 都找不到任何走法能解释。
                 val previous = acceptedBoard
                 var movedSide: Side? = null
+                var stepExplained: Boolean? = null
                 if (!bypassStepCheck && previous != null) {
                     when (val verdict = StepResolver.explain(previous, board, MAX_STRAY_DIFF)) {
                         is StepResolver.Verdict.Explained -> {
                             rejectStreak = 0
+                            stepExplained = true
                             // 走出这一步的一方确定无疑 ⇒ 现在轮到它的对手
                             movedSide = verdict.side.opponent
                             Log.i(
@@ -391,26 +430,57 @@ class BoardWatcher(
                         }
 
                         // 调用方已判 key 不同，正常到不了这里；真到了也不拦（宁可放行，不要卡住）。
-                        StepResolver.Verdict.NoChange -> Unit
+                        StepResolver.Verdict.NoChange -> stepExplained = true
 
                         is StepResolver.Verdict.Unexplained -> {
-                            rejectStreak++
-                            if (rejectStreak < MAX_REJECT_STREAK) {
-                                // 不推状态：这是内部判据，闪一下只会让人以为识别坏了。
-                                // 已采纳的盘面与文案原样不动，用户看到的仍是上一次结论。
-                                Log.w(
-                                    tag,
-                                    "与上一步对不上（差 ${verdict.diffCells} 格，" +
-                                        "最接近的走法还差 ${verdict.closestStrayDiff} 格），" +
-                                        "先不采纳 $rejectStreak/$MAX_REJECT_STREAK"
-                                )
-                                return
-                            }
-                            // 到顶必须放行 —— 换一局棋、把手机转 180° 都会走到这条分支，
-                            // 一直卡着比偶尔采信一帧坏数据更糟（用户不知道发生了什么）。
-                            Log.w(tag, "连续 $rejectStreak 帧与上一步对不上，强制采纳（防局面卡死）")
+                            stepExplained = false
+                            Log.w(
+                                tag,
+                                "与上一步对不上（差 ${verdict.diffCells} 格，" +
+                                    "最接近的走法还差 ${verdict.closestStrayDiff} 格）"
+                            )
                         }
                     }
+                }
+
+                if (gateMode == GateMode.FAST && !force) {
+                    // 单帧模式的全部判据都在这里：合法 + 一步可达，各给一格容忍
+                    // （动画中间态会短暂地既不合理也不合法，第一帧就报会每步棋闪一次）。
+                    when (val decision = fastPolicy.onFrame(BoardSanity.check(board), stepExplained)) {
+                        FastAcceptPolicy.Decision.Accept -> Unit
+
+                        FastAcceptPolicy.Decision.Skip -> {
+                            // 不推状态：这是内部判据，闪一下只会让人以为识别坏了。
+                            // 已采纳的盘面与文案原样不动，用户看到的仍是上一次结论。
+                            Log.w(tag, "单帧模式：本帧先不采纳（等下一帧确认不是中间态）")
+                            return
+                        }
+
+                        is FastAcceptPolicy.Decision.ReportIllegal -> {
+                            // 连续多帧都不合法 ⇒ 不是动画，是真认错了（被遮挡、弹窗、贴纸）。
+                            // 记住这个盘面，免得同一条原因每 700ms 重推一次。
+                            failedKey = key
+                            failedReason = decision.reason
+                            emit(failureSnapshot(decision.reason, recognizeMs))
+                            return
+                        }
+
+                        FastAcceptPolicy.Decision.ForceAccept -> Log.w(
+                            tag,
+                            "单帧模式：连续 ${FastAcceptPolicy.DEFAULT_MAX_REJECT_STREAK} 帧与上一步对不上，" +
+                                "强制采纳（防局面卡死）"
+                        )
+                    }
+                } else if (!bypassStepCheck && stepExplained == false) {
+                    rejectStreak++
+                    if (rejectStreak < MAX_REJECT_STREAK) {
+                        // 不推状态的理由同上
+                        Log.w(tag, "先不采纳 $rejectStreak/$MAX_REJECT_STREAK（与上一步对不上）")
+                        return
+                    }
+                    // 到顶必须放行 —— 换一局棋、把手机转 180° 都会走到这条分支，
+                    // 一直卡着比偶尔采信一帧坏数据更糟（用户不知道发生了什么）。
+                    Log.w(tag, "连续 $rejectStreak 帧与上一步对不上，强制采纳（防局面卡死）")
                 }
 
                 // 采纳本帧
@@ -422,6 +492,8 @@ class BoardWatcher(
                 acceptedUncertain = outcome.report.uncertain
                 failedKey = null
                 rejectStreak = 0
+                // 采纳成功必须清掉单帧判据的计数：不清的话，下一帧会立刻又触发强制放行
+                fastPolicy.onAccepted()
                 // 采纳的那一刻才打印识别内容：界面从此显示的就是这一盘，
                 // 用户以后报「某颗子认成别的子」，一行日志就能对上号
                 outcome.report.lines.firstOrNull()?.let { Log.i(LogTags.RECOGNIZER, it) }

@@ -321,7 +321,8 @@ class OverlayService : Service(), OverlayViews.Host {
                 sideMode = watcher.sideMode,
                 paused = watcher.paused,
                 depth = graph.settings.depth,
-                intervalMs = graph.settings.scanIntervalMs
+                intervalMs = graph.settings.scanIntervalMs,
+                gateMode = graph.settings.gateMode
             )
         }
         updateNotification(snapshot)
@@ -371,6 +372,20 @@ class OverlayService : Service(), OverlayViews.Host {
         graph.settings.scanIntervalMs = graph.settings.scanIntervalMs + delta * 200
         render(watcher.state.value)
         toast("盯盘间隔 ${graph.settings.scanIntervalMs}ms")
+    }
+
+    /**
+     * 切「多帧确认 / 单帧即采」。
+     *
+     * 只写设置、不碰 watcher：盯盘循环每轮都读一次设置（见 `BoardWatcher.tick`），
+     * 读到变化自己会清掉两套判据的残留状态。多一个"通知 watcher"的调用就多一处
+     * 可能忘掉的地方，而这里恰恰不允许两边不一致。
+     */
+    override fun onCycleGate() {
+        val next = graph.settings.gateMode.next()
+        graph.settings.gateMode = next
+        render(watcher.state.value)
+        toast("采纳方式：${next.label}（${next.note}）")
     }
 
     /**

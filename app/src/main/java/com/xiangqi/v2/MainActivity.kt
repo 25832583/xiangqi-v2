@@ -28,6 +28,7 @@ import com.xiangqi.v2.core.Fen
 import com.xiangqi.v2.core.Side
 import com.xiangqi.v2.di.AppGraph
 import com.xiangqi.v2.pipeline.AnalysisOutcome
+import com.xiangqi.v2.pipeline.GateMode
 import com.xiangqi.v2.service.CaptureAccessibilityService
 import com.xiangqi.v2.service.OverlayService
 import com.xiangqi.v2.ui.MoveFormatter
@@ -182,6 +183,7 @@ class MainActivity : Activity() {
             set = { s.moveTimeMs = it },
             unit = "ms"
         )
+        appendGateSwitch(body, get = { s.gateMode }, set = { s.gateMode = it })
         body.addView(
             TextView(this).apply {
                 text = "深度越高越准、出招越慢。线程数超过手机大核数反而互相抢核。"
@@ -319,6 +321,58 @@ class MainActivity : Activity() {
         }
         wrap.addView(label)
         wrap.addView(bar)
+        parent.addView(wrap)
+    }
+
+    /**
+     * 「多帧确认 / 单帧即采」的切换行。
+     *
+     * 用「标签 + 切换」而不是 Switch 控件：取值是枚举，将来可能不止两项，
+     * 循环式的写法不用跟着改布局。同时把两种模式的代价明文写出来 ——
+     * 这一项是手感与稳妥的取舍，不给代价说明等于让用户瞎猜。
+     */
+    private fun appendGateSwitch(parent: LinearLayout, get: () -> GateMode, set: (GateMode) -> Unit) {
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, 0)
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val label = TextView(this).apply {
+            setTextColor(0xFFDDDDDD.toInt())
+            textSize = 13f
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        fun refresh(mode: GateMode) {
+            label.text = "采纳方式  ${mode.label}"
+        }
+        refresh(get())
+        row.addView(label)
+        row.addView(
+            TextView(this).apply {
+                text = "切换"
+                setTextColor(ACCENT)
+                textSize = 12f
+                setPadding(dp(12), dp(4), dp(4), dp(4))
+                setOnClickListener {
+                    val next = get().next()
+                    set(next)
+                    refresh(next)
+                }
+            }
+        )
+        wrap.addView(row)
+        wrap.addView(
+            TextView(this).apply {
+                text = "多帧确认：连续两帧识别结果相同才采纳，慢一个扫描间隔，挡得住走子动画的中间态。\n" +
+                    "单帧即采：这一帧合法、且能由上一帧走一步得到就采纳，快一帧；中间态偶尔会闪出一个错着法。"
+                setTextColor(0xFF606060.toInt())
+                textSize = 10f
+                setPadding(0, dp(4), 0, 0)
+            }
+        )
         parent.addView(wrap)
     }
 

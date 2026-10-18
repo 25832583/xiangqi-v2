@@ -1,6 +1,7 @@
 package com.xiangqi.v2.config
 
 import android.content.Context
+import com.xiangqi.v2.pipeline.GateMode
 
 /**
  * 用户可调项的唯一持久化处。
@@ -64,6 +65,22 @@ class SettingsStore(context: Context) {
 
     /** 识别模型。默认用实测 100% 的那个；另一个留着做对照。 */
     val modelAsset: String get() = MODEL_V5
+
+    /**
+     * 采纳盘面的门槛：多帧确认 / 单帧即采。
+     *
+     * 这是**手感 vs 稳妥**的取舍，用户比我们更清楚自己在忍哪一种：
+     *  - 多帧确认慢一个扫描间隔（默认 700ms），但走子动画的中间态不会被采信；
+     *  - 单帧即采快，代价是中间态偶尔会变成一个闪一下的错着法。
+     *
+     * 默认多帧：错着的代价（用户照着走，白丢一子）比多等 0.7 秒大得多。
+     * 读的时候做兜底 —— 枚举名改了或被人改坏了，不该让盯盘循环崩在设置上。
+     */
+    var gateMode: GateMode
+        get() = runCatching {
+            GateMode.valueOf(prefs.getString(KEY_GATE_MODE, null) ?: GateMode.STABLE.name)
+        }.getOrDefault(GateMode.STABLE)
+        set(value) = prefs.edit().putString(KEY_GATE_MODE, value.name).apply()
 
     /** 悬浮球位置（像素）。-1 表示还没拖过，由服务算一个默认位置。 */
     var bubbleX: Int
@@ -130,5 +147,6 @@ class SettingsStore(context: Context) {
         private const val KEY_BUBBLE_X = "bubble_x"
         private const val KEY_BUBBLE_Y = "bubble_y"
         private const val KEY_BOARD = "show_board"
+        private const val KEY_GATE_MODE = "gate_mode"
     }
 }
