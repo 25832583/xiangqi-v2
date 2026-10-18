@@ -41,7 +41,13 @@ class OnnxDetector(
 
         val raw = model.run(chw)
         val shape = model.lastOutputShape
-        require(shape.isNotEmpty()) { "模型输出形状未知，load() 未成功？" }
+        // 走到这里说明推理本身已经跑完了，所以「形状未知」跟 load() 成没成功无关 ——
+        // 是形状的读取路径出了问题（真机上踩过一次：ORT 1.19 的 getOutputInfo()
+        // 返回的是 NodeInfo 包装，老代码拆包失败，静默拿到空形状）。
+        require(shape.isNotEmpty()) {
+            "推理已返回 ${raw.size} 个浮点，但输出形状为空 —— 张量形状也没有被读出来，" +
+                "检查 ORT 版本与 OnnxModel.readOutputShape 的假设是否还一致"
+        }
 
         val candidates = YoloDecoder.decode(raw, shape, Labels.COUNT, threshold)
         val kept = Nms.byClass(candidates, config.iouThreshold)

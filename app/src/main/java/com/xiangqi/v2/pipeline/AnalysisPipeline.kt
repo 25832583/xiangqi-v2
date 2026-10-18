@@ -84,6 +84,9 @@ class AnalysisPipeline(
      * 等真正识别出盘面再起，代价被"识别"这一步盖住了。
      */
     fun loadModels() = runCatching { recognizer.load() }
+        // 这里以前是裸的 runCatching：预热失败被彻底吞掉，用户只会在真正识别时
+        // 收到一句「识别失败」，日志里连一条线索都没有。至少留一行。
+        .onFailure { Log.w(tag, "模型预热失败（首次识别会重试）", it) }
 
     /**
      * 识别一帧。
