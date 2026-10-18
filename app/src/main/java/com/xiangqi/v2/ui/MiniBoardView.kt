@@ -145,7 +145,7 @@ class MiniBoardView(context: Context) : View(context) {
         cx: (Int) -> Float,
         cy: (Int) -> Float
     ) {
-        val radius = cell * 0.42f
+        val radius = cell * PIECE_RADIUS_RATIO
         pieceText.textSize = cell * 0.62f
         for (row in 0 until Board.ROWS) {
             for (col in 0 until Board.COLS) {
@@ -166,10 +166,14 @@ class MiniBoardView(context: Context) : View(context) {
     }
 
     /**
-     * 推荐着法的箭头：起点画一个空心圈（"这枚子"），终点画实心小点 + 箭头。
+     * 推荐着法的箭头：起点画一个空心圈（"这枚子"），终点画箭头三角。
      *
-     * 起终点都停在棋子外沿 —— 线画进棋子圆里会让文字糊掉，而记谱里"起点是什么子"
+     * 起终点默认停在棋子外沿 —— 线画进棋子圆里会让文字糊掉，而记谱里"起点是什么子"
      * 和"落在哪一格"恰恰是两件都要看清的事。
+     *
+     * **但"停在棋子外沿"不能无条件执行**：走一格时两圆之间只剩 0.16 个格距（≈3dp），
+     * 两端都按「半径 + 1dp」让完是负长度，箭头连起点圈都会被丢掉。让出量带上限、
+     * 允许压进圆边约 2dp（仍在汉字外沿之外）这件事交给 [ArrowGeometry] 算。
      */
     private fun drawArrow(
         canvas: Canvas,
@@ -182,28 +186,32 @@ class MiniBoardView(context: Context) : View(context) {
         val fromY = cy(move.fromRow)
         val toX = cx(move.toCol)
         val toY = cy(move.toRow)
-        if (fromX == toX && fromY == toY) return
 
-        val radius = cell * 0.42f
         val dx = toX - fromX
         val dy = toY - fromY
         val length = kotlin.math.hypot(dx, dy)
-        if (length < 1f) return
+        val radius = cell * PIECE_RADIUS_RATIO
+        val layout = ArrowGeometry.layout(
+            length = length,
+            radius = radius,
+            edgeGap = dp(1f),
+            minShaft = dp(8f),
+            maxHead = dp(6f)
+        ) ?: return
         val ux = dx / length
         val uy = dy / length
 
-        val startX = fromX + ux * (radius + dp(1f))
-        val startY = fromY + uy * (radius + dp(1f))
-        val endX = toX - ux * (radius + dp(1f))
-        val endY = toY - uy * (radius + dp(1f))
-        if (kotlin.math.hypot(endX - startX, endY - startY) < dp(4f)) return
+        val startX = fromX + ux * layout.margin
+        val startY = fromY + uy * layout.margin
+        val endX = toX - ux * layout.margin
+        val endY = toY - uy * layout.margin
 
         // 起点圈：标出"走的是这枚子"
         canvas.drawCircle(fromX, fromY, radius + dp(1.2f), targetRing)
         canvas.drawLine(startX, startY, endX, endY, arrowPaint)
 
-        val head = dp(6f)
-        val halfWidth = dp(3.2f)
+        val head = layout.head
+        val halfWidth = layout.halfWidth
         val path = Path().apply {
             moveTo(endX, endY)
             lineTo(endX - ux * head - uy * halfWidth, endY - uy * head + ux * halfWidth)
@@ -220,5 +228,12 @@ class MiniBoardView(context: Context) : View(context) {
         const val ACCENT = 0xFFFFD24A.toInt()
         const val RED = 0xFFFF7A66.toInt()
         const val BLACK = 0xFFA9C0D6.toInt()
+
+        /**
+         * 棋子半径 / 格距。0.42 是"棋子几乎贴在一起"的比例 —— 棋盘本来就小
+         * （格距约 21.8dp），再小就看不清字。代价是走一格时两圆之间几乎没空隙，
+         * 见 [drawArrow] 与 [ArrowGeometry]。
+         */
+        const val PIECE_RADIUS_RATIO = 0.42f
     }
 }

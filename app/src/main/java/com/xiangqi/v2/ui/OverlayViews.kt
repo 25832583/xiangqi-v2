@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.xiangqi.v2.core.Move
 import com.xiangqi.v2.pipeline.SideMode
 import com.xiangqi.v2.pipeline.WatchPhase
 import com.xiangqi.v2.pipeline.WatchSnapshot
@@ -116,6 +117,16 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
     private val sideButton: TextView
     private val depthLabel: TextView
     private val intervalLabel: TextView
+
+    /**
+     * 上一次「出结论」的 FEN 与着法。
+     *
+     * 用途只有一个：同一个局面被重算时（点重新识别、改深度、切轮次）沿用上一次的箭头。
+     * 否则每次搜索都会闪成「分析中…」，箭头消失再出现 —— 用户看到的就是
+     * 「这条线有时候给、有时候不给」。局面没变，上一次的结论就仍然成立。
+     */
+    private var lastReadyFen: String? = null
+    private var lastReadyMove: Move? = null
 
     init {
         orientation = VERTICAL
@@ -293,10 +304,24 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
             if (timing.isNotEmpty()) append("   ").append(timing)
         }
 
-        // 只在有结论时画箭头：分析中/出错时盘面可能已经变了，箭头会指错方向
+        if (snapshot.phase == WatchPhase.READY && snapshot.analysis != null) {
+            lastReadyFen = snapshot.fen
+            lastReadyMove = snapshot.analysis.bestMove
+        }
+        // 只在有结论时画箭头：分析中/出错时盘面可能已经变了，箭头会指错方向。
+        // 例外是「同一个局面在重算」—— FEN 相同说明盘面与轮次都没变，
+        // 上一次的着法依然成立，沿用它可以避免每次搜索都闪一下。
+        val samePositionReanalyzing =
+            snapshot.phase == WatchPhase.ANALYZING &&
+                snapshot.fen != null &&
+                snapshot.fen == lastReadyFen
         miniBoard.show(
             snapshot.board,
-            if (snapshot.phase == WatchPhase.READY) snapshot.analysis?.bestMove else null,
+            when {
+                snapshot.phase == WatchPhase.READY -> snapshot.analysis?.bestMove
+                samePositionReanalyzing -> lastReadyMove
+                else -> null
+            },
             snapshot.side
         )
 
