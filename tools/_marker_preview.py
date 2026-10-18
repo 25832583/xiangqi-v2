@@ -3,7 +3,7 @@
 参数全部对齐 MiniBoardView / MarkerGeometry：
   cell  = min(W/9, H/10)      —— 按列数/行数算，四周留半格给四角框
   半径  = 0.42 cell, 框半边长 = 0.47 cell, 臂长 = 0.56 * 半边长
-  stroke: 格线 0.9dp / 棋子 1.1dp / 标记 1.6dp
+  stroke: 格线 0.9dp / 棋子 1.1dp / 标记 1.5dp
 density 取 3（xxhdpi）。棋盘从 FEN 解析，不手写，免得又对错列。
 """
 from PIL import Image, ImageDraw, ImageFont
@@ -81,7 +81,7 @@ def draw_board(img, board, move):
 
     half = cell * 0.47
     arm = half * 2 * 0.28
-    mw = max(1, round(dp(1.6)))
+    mw = max(1, round(dp(1.5)))
     for col, row in ((move[0], move[1]), (move[2], move[3])):  # (col, row)
         ox, oy = cx(col), cy(row)
         for sx in (-1, 1):
