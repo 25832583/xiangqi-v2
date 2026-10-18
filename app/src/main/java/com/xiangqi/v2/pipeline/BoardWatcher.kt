@@ -7,6 +7,7 @@ import com.xiangqi.v2.config.SettingsStore
 import com.xiangqi.v2.core.Board
 import com.xiangqi.v2.core.Fen
 import com.xiangqi.v2.core.Side
+import com.xiangqi.v2.core.rule.StepResolver
 import com.xiangqi.v2.engine.EngineAnalysis
 import com.xiangqi.v2.infra.LogTags
 import com.xiangqi.v2.vision.RecognitionOutcome
@@ -114,6 +115,15 @@ class BoardWatcher(
     private var pendingKey: String? = null
     private var pendingHits: Int = 0
 
+    /**
+     * 连续「与上一步对不上」的次数。到 [MAX_REJECT_STREAK] 就强制放行。
+     *
+     * 没有这条兜底，一次持续误判会让局面**永远不更新** —— 换一局棋、把手机转 180°、
+     * 或者识别本身坏掉，全都会走到「差异太大、无法用一步棋解释」这条分支。
+     * 那比偶尔采信一帧坏数据更糟：用户完全不知道发生了什么，只会觉得"它卡住了"。
+     */
+    private var rejectStreak: Int = 0
+
     /** 上一次分析失败的盘面，避免同一局面反复重试、反复提示。 */
     private var failedKey: String? = null
     private var failedReason: String? = null
@@ -191,6 +201,7 @@ class BoardWatcher(
         acceptedKey = null
         failedKey = null
         pendingHits = 0
+        rejectStreak = 0
         // 让循环先让路：否则用户点的这次识别会和循环里那次同时抓帧、同时送引擎，
         // 白烧一份 CPU，还可能把两次结果按不同顺序推给界面
         refreshing = true
@@ -268,12 +279,59 @@ class BoardWatcher(
                     return
                 }
 
+                // 稳定门槛过了，但这只说明「连续两帧长得一样」，不说明这个盘面是对的。
+                // 一直把某个仕认成马时，两帧当然完全一样。所以再过一道：
+                // **这一帧能不能由上一帧走一步棋得到？**
+                // 认错种类（残留差异里出现「两格都有子但种类不同」）、凭空多一个子、
+                // 凭空少一个子 —— 都找不到任何走法能解释。
+                val previous = acceptedBoard
+                var movedSide: Side? = null
+                if (!force && previous != null) {
+                    when (val verdict = StepResolver.explain(previous, board, MAX_STRAY_DIFF)) {
+                        is StepResolver.Verdict.Explained -> {
+                            rejectStreak = 0
+                            // 走出这一步的一方确定无疑 ⇒ 现在轮到它的对手
+                            movedSide = verdict.side.opponent
+                            Log.i(
+                                tag,
+                                "与上一步吻合：${verdict.side.displayName}" +
+                                    "${verdict.piece.displayName(verdict.side)} ${verdict.move.toUci()}" +
+                                    (if (verdict.strayDiff > 0) "（另有 ${verdict.strayDiff} 格在容差内）" else "") +
+                                    (if (verdict.alternatives > 1) "（${verdict.alternatives} 种走法都吻合）" else "")
+                            )
+                        }
+
+                        // 调用方已判 key 不同，正常到不了这里；真到了也不拦（宁可放行，不要卡住）。
+                        StepResolver.Verdict.NoChange -> Unit
+
+                        is StepResolver.Verdict.Unexplained -> {
+                            rejectStreak++
+                            if (rejectStreak < MAX_REJECT_STREAK) {
+                                // 不推状态：这是内部判据，闪一下只会让人以为识别坏了。
+                                // 已采纳的盘面与文案原样不动，用户看到的仍是上一次结论。
+                                Log.w(
+                                    tag,
+                                    "与上一步对不上（差 ${verdict.diffCells} 格，" +
+                                        "最接近的走法还差 ${verdict.closestStrayDiff} 格），" +
+                                        "先不采纳 $rejectStreak/$MAX_REJECT_STREAK"
+                                )
+                                return
+                            }
+                            // 到顶必须放行 —— 换一局棋、把手机转 180° 都会走到这条分支，
+                            // 一直卡着比偶尔采信一帧坏数据更糟（用户不知道发生了什么）。
+                            Log.w(tag, "连续 $rejectStreak 帧与上一步对不上，强制采纳（防局面卡死）")
+                        }
+                    }
+                }
+
                 // 采纳本帧
                 currentSide = sideMode.sideOrNull()
-                    ?: SideInference.infer(acceptedBoard, board, currentSide)
+                    ?: movedSide
+                    ?: SideInference.infer(previous, board, currentSide)
                 acceptedBoard = board
                 acceptedKey = key
                 failedKey = null
+                rejectStreak = 0
                 analyze(board, recognizeMs)
             }
 
@@ -384,8 +442,20 @@ class BoardWatcher(
     }
 
     private companion object {
-        /** 连续几帧识别结果相同才采纳。2 就够挡住走子动画的中间态。 */
+        /**
+         * 连续几帧识别结果相同才进入下一步判定。2 就够挡住走子动画的中间态。
+         *
+         * 注意它**只**保证「这两帧长得一样」，不保证「这个盘面是对的」——
+         * 稳定地认错时两帧同样一样。所以它后面还有一道 [StepResolver] 的
+         * 「一步可达」判据，两者分工不同，缺一不可。
+         */
         const val REQUIRED_STABLE_HITS = 2
+
+        /** 允许几格「一边有一边无」的检出抖动。见 [StepResolver.explain]。 */
+        const val MAX_STRAY_DIFF = 1
+
+        /** 连续几帧与上一步对不上之后强制采纳。3 轮 × 700ms ≈ 2 秒。 */
+        const val MAX_REJECT_STREAK = 3
 
         const val GRAB_TIMEOUT_MS = 1500L
 
