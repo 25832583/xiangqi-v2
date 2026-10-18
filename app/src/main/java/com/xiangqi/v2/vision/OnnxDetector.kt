@@ -56,17 +56,37 @@ class OnnxDetector(
 
     private fun letterboxed(frame: Bitmap, lb: Letterbox): Bitmap {
         val size = config.inputSize
+        val scaled = downscale(frame, lb)
         val canvas = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(canvas)
         c.drawColor(Color.rgb(Letterbox.FILL, Letterbox.FILL, Letterbox.FILL))
+        // 分步缩放后尺寸已精确等于目标，这里 1:1 贴合 —— 绝不能让 Canvas 再缩第二次，
+        // 那会把 [Downscale] 省下来的采样精度重新丢掉
         val dst = RectF(
             lb.padX,
             lb.padY,
-            lb.padX + frame.width * lb.scale,
-            lb.padY + frame.height * lb.scale
+            lb.padX + lb.scaledWidth,
+            lb.padY + lb.scaledHeight
         )
-        c.drawBitmap(frame, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+        c.drawBitmap(scaled, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+        if (scaled !== frame) scaled.recycle()
         return canvas
+    }
+
+    /**
+     * 逐级减半缩到 letterbox 的目标尺寸。
+     *
+     * 整屏 1280x2816 -> 640 是 4.4 倍降采样，直接交给 Canvas 的 2x2 双线性会丢掉九成
+     * 源像素（混叠），红方笔画密的棋子会被认成别的种类。见 [Downscale] 的实测表。
+     */
+    private fun downscale(frame: Bitmap, lb: Letterbox): Bitmap {
+        var cur = frame
+        for (step in Downscale.plan(frame.width, frame.height, lb.scaledWidth, lb.scaledHeight)) {
+            val next = Bitmap.createScaledBitmap(cur, step[0], step[1], true)
+            if (cur !== frame) cur.recycle()
+            cur = next
+        }
+        return cur
     }
 
     /** NCHW + RGB + 0..1，与导出 ONNX 时的预处理一致。 */

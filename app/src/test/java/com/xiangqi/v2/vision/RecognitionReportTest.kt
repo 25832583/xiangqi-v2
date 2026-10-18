@@ -105,13 +105,31 @@ class RecognitionReportTest {
     }
 
     @Test
-    fun `阈值边界：正好等于 0_70 不算低置信`() {
+    fun `阈值边界：正好等于阈值不算低置信`() {
         val board = boardWith(Triple(5, 5, PieceType.CANNON to Side.BLACK))
         val result = report(board, listOf(candidate(5, 5, 'c', RecognitionReport.LOW_CONFIDENCE)))
         assertTrue(
             "等于阈值应当算可信（判据是严格小于），否则临界帧会无端亮警告",
             result.uncertain.isEmpty()
         )
+    }
+
+    @Test
+    fun `降采样混叠导致的 0_71 也必须被点名`() {
+        // 实测：整屏帧一次双线性缩到 640，(3,5) 的红车会变成红炮 0.706。
+        // 旧阈值 0.70 恰好放过这一档，是「认错了但界面上一点提示都没有」的直接原因。
+        val board = boardWith(
+            Triple(3, 5, PieceType.CANNON to Side.RED),
+            Triple(9, 4, PieceType.KING to Side.RED)
+        )
+        val result = report(
+            board,
+            listOf(
+                candidate(3, 5, 'C', 0.706f),
+                candidate(9, 4, 'K', 0.92f)
+            )
+        )
+        assertEquals(setOf(3 * Board.COLS + 5), result.uncertain)
     }
 
     @Test
