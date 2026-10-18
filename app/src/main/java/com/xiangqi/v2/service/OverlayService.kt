@@ -310,10 +310,8 @@ class OverlayService : Service(), OverlayViews.Host {
     }
 
     override fun onCycleSide() {
-        scope.launch {
-            val mode = watcher.cycleSideMode()
-            toast("走子方：${mode.label}")
-        }
+        val mode = watcher.cycleSideMode()
+        toast("走子方：${mode.label}")
     }
 
     override fun onDepthDelta(delta: Int) {
@@ -327,6 +325,27 @@ class OverlayService : Service(), OverlayViews.Host {
         graph.settings.scanIntervalMs = graph.settings.scanIntervalMs + delta * 200
         render(watcher.state.value)
         toast("盯盘间隔 ${graph.settings.scanIntervalMs}ms")
+    }
+
+    /**
+     * 收起 / 展开小棋盘。
+     *
+     * 展开后要**重新摆一次位置**：面板高度变了，而窗口是 WRAP_CONTENT 高度、
+     * 位置由我们自己算 —— 不重摆就会出现"面板往上长，顶到屏幕外"或者
+     * "收起后下面空一大块"。
+     */
+    override fun onToggleBoard() {
+        val visible = !graph.settings.showBoard
+        graph.settings.showBoard = visible
+        val view = panel ?: return
+        view.setBoardVisible(visible)
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(panelParams?.width ?: dp(300), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        positionPanel()
+        render(watcher.state.value)
+        toast(if (visible) "显示棋盘" else "收起棋盘")
     }
 
     override fun onMinimize() = hidePanel()

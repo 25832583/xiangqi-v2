@@ -90,6 +90,7 @@ object OverlayViews {
         fun onCycleSide()
         fun onDepthDelta(delta: Int)
         fun onIntervalDelta(delta: Int)
+        fun onToggleBoard()
         fun onMinimize()
         fun onStop()
     }
@@ -106,6 +107,7 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
 
     private val statusDot: View
     private val statusText: TextView
+    private val miniBoard: MiniBoardView
     private val moveText: TextView
     private val scoreText: TextView
     private val pvText: TextView
@@ -139,9 +141,11 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
         }
+        val boardButton = iconButton("棋盘") { host.onToggleBoard() }
         val minimize = iconButton("收起", host::onMinimize)
         val close = iconButton("退出", host::onStop)
         header.addView(title)
+        header.addView(boardButton)
         header.addView(minimize)
         header.addView(close)
         addView(header)
@@ -164,6 +168,16 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
         statusRow.addView(statusDot)
         statusRow.addView(statusText)
         addView(statusRow)
+
+        // ---- 小棋盘（可折叠，默认展开）----
+        // 高度写死、宽度撑满：内部按"格子必须是正方形"自己算格距并居中，
+        // 所以这里不需要和 dp 换算较劲。
+        miniBoard = MiniBoardView(context).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(200f)).apply {
+                topMargin = dp(2f)
+            }
+        }
+        addView(miniBoard)
 
         // ---- 推荐着法卡片 ----
         val card = LinearLayout(context).apply {
@@ -264,6 +278,11 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
         addView(hint)
     }
 
+    /** 显示/隐藏小棋盘。收起后面板矮一截，位置由服务重新摆一次。 */
+    fun setBoardVisible(visible: Boolean) {
+        miniBoard.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
     fun render(snapshot: WatchSnapshot, sideMode: SideMode, paused: Boolean, depth: Int, intervalMs: Int) {
         statusDot.background = bg(colorOf(snapshot.phase), dp(4f).toFloat())
         statusText.text = buildString {
@@ -273,6 +292,13 @@ class PanelView(context: Context, private val host: OverlayViews.Host) : LinearL
             if (snapshot.analyzeMs > 0) timing.append(" · 搜索 ${snapshot.analyzeMs}ms")
             if (timing.isNotEmpty()) append("   ").append(timing)
         }
+
+        // 只在有结论时画箭头：分析中/出错时盘面可能已经变了，箭头会指错方向
+        miniBoard.show(
+            snapshot.board,
+            if (snapshot.phase == WatchPhase.READY) snapshot.analysis?.bestMove else null,
+            snapshot.side
+        )
 
         val analysis = snapshot.analysis
         if (analysis != null && snapshot.phase == WatchPhase.READY) {

@@ -74,6 +74,17 @@ class SettingsStore(context: Context) {
         get() = prefs.getInt(KEY_BUBBLE_Y, -1)
         set(value) = prefs.edit().putInt(KEY_BUBBLE_Y, value).apply()
 
+    /**
+     * 面板里是否显示小棋盘。
+     *
+     * 默认开：箭头比「炮二平五」直观得多，尤其残局里子少位偏。但它有代价 ——
+     * 面板会高出约 200dp，小屏上会顶到状态栏，所以必须能一键收起，
+     * 而且这个选择要记住（每次展开都要手动收一次很烦）。
+     */
+    var showBoard: Boolean
+        get() = prefs.getBoolean(KEY_BOARD, true)
+        set(value) = prefs.edit().putBoolean(KEY_BOARD, value).apply()
+
     /** ONNX 会话线程数。和磁盘解压一样，属于整个应用共享的固定值，不做设置项。 */
     val sessionThreads: Int get() = 4
 
@@ -118,5 +129,6 @@ class SettingsStore(context: Context) {
         private const val KEY_REVISION = "engine_revision"
         private const val KEY_BUBBLE_X = "bubble_x"
         private const val KEY_BUBBLE_Y = "bubble_y"
+        private const val KEY_BOARD = "show_board"
     }
 }
