@@ -18,7 +18,27 @@ class SettingsStore(context: Context) {
 
     private val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    /** 搜索深度：低于 8 基本只能看一步，高于 16 在手机上出招要等到肉眼可感。 */
+    init {
+        // 老安装里存的 12 是"从没调过"的旧默认值，只把它抬到新默认，用户自己调过的不动。
+        // 细节与判据见 [DepthDefault]。
+        if (!prefs.getBoolean(DepthDefault.FLAG, false)) {
+            val stored = if (prefs.contains(KEY_DEPTH)) depth else null
+            val target = DepthDefault.migrate(stored, migrated = false)
+            prefs.edit().apply {
+                if (target != null) putInt(KEY_DEPTH, target)
+                putBoolean(DepthDefault.FLAG, true)
+            }.apply()
+        }
+    }
+
+    /**
+     * 搜索深度（**上限**，不是目标）。
+     *
+     * 引擎收到的是 `go depth N movetime M`，先到者生效：真正兜住"别卡太久"的是思考时间
+     * （[moveTimeMs]），深度只决定"够快算完的局面能算多深"。所以调高深度不会让复杂局面
+     * 更慢，只会让简单局面把时间用满 —— 这正是默认值从 12 提到 18 的原因：
+     * 实测 depth 12 只要 4 万节点（手机约 0.1 秒），2500ms 的预算基本在空转。
+     */
     var depth: Int
         get() = prefs.getInt(KEY_DEPTH, DEFAULT_DEPTH).coerceIn(MIN_DEPTH, MAX_DEPTH)
         set(value) = prefs.edit().putInt(KEY_DEPTH, value.coerceIn(MIN_DEPTH, MAX_DEPTH)).apply()
@@ -119,8 +139,12 @@ class SettingsStore(context: Context) {
 
     companion object {
         const val MIN_DEPTH = 6
-        const val MAX_DEPTH = 20
-        const val DEFAULT_DEPTH = 12
+        /**
+         * 上限从 20 提到 24：默认已经 18，若上限仍是 20，"深一点"只按得动两次。
+         * 调高上限本身不会拖慢局面 —— `go depth N movetime M` 里 movetime 先到就先返回。
+         */
+        const val MAX_DEPTH = 24
+        const val DEFAULT_DEPTH = DepthDefault.CURRENT
 
         const val MIN_MOVE_TIME = 300
         const val MAX_MOVE_TIME = 8000

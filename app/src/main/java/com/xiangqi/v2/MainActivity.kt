@@ -186,7 +186,8 @@ class MainActivity : Activity() {
         appendGateSwitch(body, get = { s.gateMode }, set = { s.gateMode = it })
         body.addView(
             TextView(this).apply {
-                text = "深度越高越准、出招越慢。线程数超过手机大核数反而互相抢核。"
+                text = "深度是「上限」：算到就返回，复杂局面由「思考上限」兜底，所以调高不会更卡。" +
+                    "线程数超过手机大核数反而互相抢核（实测同深度下更多线程更慢）。"
                 setTextColor(0xFF606060.toInt())
                 textSize = 10f
                 setPadding(0, dp(6), 0, 0)
