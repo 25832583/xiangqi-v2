@@ -55,3 +55,31 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
 }
+
+// 每次 assembleDebug 成功后，把 APK 复制到 D:\xiangqi-apk。
+// 工程在 C 盘很深的目录里，手动翻 build/outputs/apk/debug 太费事。
+val apkDropDir = File("D:/xiangqi-apk")
+
+tasks.register("syncApkToD") {
+    group = "build"
+    description = "把本次构建的 debug APK 同步到 D:\\xiangqi-apk"
+
+    doLast {
+        val apkDir = File(projectDir, "build/outputs/apk/debug")
+        val apks = apkDir.listFiles { f: File -> f.isFile && f.extension == "apk" }
+        if (apks.isNullOrEmpty()) {
+            logger.lifecycle("没有找到 APK，跳过同步")
+            return@doLast
+        }
+        apkDropDir.mkdirs()
+        apks.forEach { src ->
+            val dst = File(apkDropDir, src.name)
+            src.copyTo(dst, overwrite = true)
+            logger.lifecycle("APK 已同步 -> ${dst.absolutePath}")
+        }
+    }
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    finalizedBy("syncApkToD")
+}
