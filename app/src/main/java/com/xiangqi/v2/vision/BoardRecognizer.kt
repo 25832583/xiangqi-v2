@@ -23,7 +23,15 @@ sealed class RecognitionOutcome {
 
     data class NoBoard(val boardCandidates: Int, override val elapsedMs: Long) : RecognitionOutcome()
 
-    data class TooFewPieces(val count: Int, override val elapsedMs: Long) : RecognitionOutcome()
+    /**
+     * @param count     剩下几颗
+     * @param rejected  其中几颗是「尺寸不像棋子」被滤掉的（整盘误检等），排查时要看
+     */
+    data class TooFewPieces(
+        val count: Int,
+        override val elapsedMs: Long,
+        val rejected: Int = 0
+    ) : RecognitionOutcome()
 
     data class PoorGeometry(
         val residualX: Float,
@@ -61,9 +69,14 @@ class BoardRecognizer(
 
         // 先裁到棋盘框：棋盘上方的装饰棋子立牌、下方被吃子托盘都是合法棋子外观，
         // 它们离棋盘中心 3~6 个格距，混进周期拟合会把 pitch/phase 一起带偏。
-        val pieces = BoardBoxAnchor.clipToBoard(output.pieces, boardBox)
+        val clipped = BoardBoxAnchor.clipToBoard(output.pieces, boardBox)
+        // 再挡「整块棋盘被当成一颗棋子」——JJ象棋比赛皮肤实测会出这个（7.4x8.2 格、
+        // 置信 0.32、中心正好在棋盘中心），见 [PieceSizeFilter]。
+        val pieces = PieceSizeFilter.keep(clipped, boardBox)
         if (pieces.size < config.minPieces) {
-            return@withContext RecognitionOutcome.TooFewPieces(pieces.size, elapsed())
+            return@withContext RecognitionOutcome.TooFewPieces(
+                pieces.size, elapsed(), clipped.size - pieces.size
+            )
         }
 
         val xs = FloatArray(pieces.size) { pieces[it].box.centerX }

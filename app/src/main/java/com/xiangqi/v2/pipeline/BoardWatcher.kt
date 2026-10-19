@@ -553,7 +553,12 @@ class BoardWatcher(
                 // 残局只剩 3~5 颗子是完全正常的（单车/单兵对将），不能提示“遮挡”——
                 // 那会误导用户以为悬浮窗/弹窗挡了棋盘。真正的问题是棋子太少，
                 // 不足以同时确定格距和相位，见 [AxisFitter] 与 [RecognitionConfig.minPieces]。
-                Log.w(tag, "棋子太少：${outcome.count} 颗，帧 ${frame.width}x${frame.height}")
+                Log.w(
+                    tag,
+                    "棋子太少：${outcome.count} 颗" +
+                        (if (outcome.rejected > 0) "（另有 ${outcome.rejected} 个框尺寸不像棋子被滤掉）" else "") +
+                        "，帧 ${frame.width}x${frame.height}"
+                )
                 emit(
                     problem(
                         "只认出 ${outcome.count} 颗子 · 至少需要 3 颗棋子才能确定棋盘格线" +
