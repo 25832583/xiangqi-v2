@@ -49,9 +49,16 @@ class OnnxDetector(
                 "检查 ORT 版本与 OnnxModel.readOutputShape 的假设是否还一致"
         }
 
-        val candidates = YoloDecoder.decode(raw, shape, Labels.COUNT, threshold)
+        // 棋盘类要用低得多的门槛单独捞（见 RecognitionConfig.boardConfThreshold）：
+        // JJ象棋「32强战」皮肤上棋盘框只有 0.31~0.47，个别帧掉到 0.23，按 0.25 一刀切
+        // 会直接判「找不到棋盘」，而框本身是对的。
+        // NMS 是按类别各自做的，低分棋子框不会顶掉高分棋子框，所以可以一次性低门槛解码、
+        // 再按类别过滤，不用为棋盘单独跑一遍推理。
+        val decodeFloor = minOf(threshold, config.boardConfThreshold)
+        val candidates = YoloDecoder.decode(raw, shape, Labels.COUNT, decodeFloor)
         val kept = Nms.byClass(candidates, config.iouThreshold)
-        return DetectorOutput(kept.map { it.copy(box = lb.toFrame(it.box)) }, lb)
+        val filtered = kept.filter { it.isBoard || it.score >= threshold }
+        return DetectorOutput(filtered.map { it.copy(box = lb.toFrame(it.box)) }, lb)
     }
 
     private fun letterboxed(frame: Bitmap, lb: Letterbox): Bitmap {

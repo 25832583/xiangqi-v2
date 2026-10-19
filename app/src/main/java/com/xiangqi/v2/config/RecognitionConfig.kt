@@ -13,6 +13,16 @@ data class RecognitionConfig(
     val inputSize: Int = 640,
     /** 检测置信度门槛 */
     val confidenceThreshold: Float = 0.25f,
+    /**
+     * **棋盘框**单独用的置信度门槛，比棋子低得多。
+     *
+     * JJ象棋「32强战」皮肤实测：棋盘框置信 0.31~0.47（常规皮肤 0.83~0.94），
+     * 7 张截图里有 2 张掉到 0.23 附近 —— 用 0.25 当门槛会直接被判「找不到棋盘」，
+     * 而框本身是对的。棋盘只有一个、且形状固定，误检代价远小于漏检，
+     * 所以这里放宽；放宽后靠 [com.xiangqi.v2.vision.BoardBoxSynth.sizePlausible]
+     * 的尺寸一致性把它筛回来（框宽应约等于 8 颗子宽、高约 9 颗子高）。
+     */
+    val boardConfThreshold: Float = 0.12f,
     /** 同类别 NMS 的 IoU 门槛 */
     val iouThreshold: Float = 0.5f,
     /**

@@ -532,6 +532,15 @@ class BoardWatcher(
                 rejectStreak = 0
                 // 采纳成功必须清掉单帧判据的计数：不清的话，下一帧会立刻又触发强制放行
                 fastPolicy.onAccepted()
+                if (outcome.synthesizedBoard) {
+                    // 走这条路说明该皮肤/分辨率下模型已经给不出合格的棋盘框了。
+                    // 记帧尺寸 + 子数，下次「识别不了」时能一眼看出是不是又退化到这一步。
+                    Log.w(
+                        tag,
+                        "棋盘框由棋子反推（模型未给出合格框）· 帧 ${frame.width}x${frame.height} " +
+                            "· 子 ${outcome.pieceDetections}"
+                    )
+                }
                 // 采纳的那一刻才打印识别内容：界面从此显示的就是这一盘，
                 // 用户以后报「某颗子认成别的子」，一行日志就能对上号
                 outcome.report.lines.firstOrNull()?.let { Log.i(LogTags.RECOGNIZER, it) }

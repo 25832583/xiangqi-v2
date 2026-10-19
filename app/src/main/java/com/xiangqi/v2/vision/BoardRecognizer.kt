@@ -18,7 +18,14 @@ sealed class RecognitionOutcome {
         val anchor: AnchorResult,
         /** 见 [RecognitionReport]：日志行 + 需要高亮的低置信格。由调用方在采纳时使用。 */
         val report: RecognitionReport.Report = RecognitionReport.Report.EMPTY,
-        override val elapsedMs: Long
+        override val elapsedMs: Long,
+        /**
+         * 这一帧的棋盘框是**从棋子反推**出来的，不是模型检出来的。
+         *
+         * 只用来在日志里标记 —— 走这条路说明这个皮肤/分辨率下棋盘框已经接近检不出来，
+         * 后续若再出现「识别不了」，先看日志里这个标记是不是变多了。
+         */
+        val synthesizedBoard: Boolean = false
     ) : RecognitionOutcome()
 
     data class NoBoard(val boardCandidates: Int, override val elapsedMs: Long) : RecognitionOutcome()
@@ -63,9 +70,19 @@ class BoardRecognizer(
         fun elapsed() = (System.nanoTime() - started) / 1_000_000
 
         val output = detector.detect(frame)
-        val boards = output.boards.filter { aspectOk(it.box) }
-        val boardBox = boards.maxByOrNull { it.score }?.box
+        val (pieceW, pieceH) = BoardBoxSynth.medianSize(output.pieces)
+
+        // 棋盘框分两道：形状（宽高比）+ 尺寸（框宽该是 8 颗子宽、框高该是 9 颗子高）。
+        // 只放宽门槛不做尺寸校验不行 —— JJ象棋那张失败图上模型给的「棋盘框」是
+        // 967x1104 的残缺框（真实约 1250x1360），置信 0.214，比真框还高一点点。
+        val boxes = output.boards.filter { aspectOk(it.box) }
+        val plausible = boxes.filter { BoardBoxSynth.sizePlausible(it.box, pieceW, pieceH) }
+        val picked = plausible.maxByOrNull { it.score }?.box
+        // 一个都不像棋盘：用棋子中心包络反推（首末列/行有子时它**就是**棋盘框）
+        val boardBox = picked
+            ?: BoardBoxSynth.synth(output.pieces)
             ?: return@withContext RecognitionOutcome.NoBoard(output.boards.size, elapsed())
+        val synthesized = picked == null
 
         // 先裁到棋盘框：棋盘上方的装饰棋子立牌、下方被吃子托盘都是合法棋子外观，
         // 它们离棋盘中心 3~6 个格距，混进周期拟合会把 pitch/phase 一起带偏。
@@ -132,7 +149,7 @@ class BoardRecognizer(
             colOffset = anchor.colOffset,
             rowOffset = anchor.rowOffset
         )
-        RecognitionOutcome.Success(assembly, fitX, fitY, pieces.size, anchor, report, elapsed())
+        RecognitionOutcome.Success(assembly, fitX, fitY, pieces.size, anchor, report, elapsed(), synthesized)
     }
 
     private fun aspectOk(box: Box): Boolean {
