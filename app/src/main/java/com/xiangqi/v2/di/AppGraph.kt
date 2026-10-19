@@ -12,6 +12,7 @@ import com.xiangqi.v2.infra.AssetStore
 import com.xiangqi.v2.infra.OnnxModel
 import com.xiangqi.v2.pipeline.AnalysisPipeline
 import com.xiangqi.v2.service.CaptureAccessibilityService
+import com.xiangqi.v2.vision.BoardLocator
 import com.xiangqi.v2.vision.BoardRecognizer
 import com.xiangqi.v2.vision.OnnxDetector
 
@@ -50,8 +51,32 @@ class AppGraph(context: Context) {
             threads = settings.sessionThreads,
             inputShape = longArrayOf(1, 3, RECOGNITION_INPUT.toLong(), RECOGNITION_INPUT.toLong())
         )
-        BoardRecognizer(OnnxDetector(model, recognitionConfig), recognitionConfig)
+        BoardRecognizer(
+            detector = OnnxDetector(model, recognitionConfig),
+            config = recognitionConfig,
+            // 传**函数**而不是实例：解压 38MB + 建会话要几百毫秒，而绝大多数用户
+            // 一次都不会触发「主模型给不出棋盘框」。首次真正需要时才付这笔钱。
+            locator = BoardLocator(
+                modelProvider = ::boardLocatorModel,
+                config = recognitionConfig
+            )
+        )
     }
+
+    /**
+     * 兜底定位模型（DeepXiangQi detect-ultra 导出的 ONNX）。
+     *
+     * 只用来在**主模型给不出合格棋盘框**时补一个框；棋子分类仍然全用主模型 ——
+     * 它会把浅色皮肤上的「兵」认成「马」且置信 0.94，详见 [BoardLocator] 的类注释。
+     *
+     * 许可提醒：上游仓库的 license 字段为空（等于保留全部权利），自己用没问题，
+     * 对外分发前必须换成有明确许可的权重。
+     */
+    private fun boardLocatorModel(): OnnxModel = OnnxModel(
+        modelPath = assets.extractTo(LOCATOR_ASSET, "models/$LOCATOR_ASSET").absolutePath,
+        threads = settings.sessionThreads,
+        inputShape = longArrayOf(1, 3, LOCATOR_INPUT.toLong(), LOCATOR_INPUT.toLong())
+    )
 
     private val engineLocator: EngineLocator by lazy {
         // 这里传的是「引擎文件名与原生库名」的默认配置，线程/哈希由每次 create 时的配置决定
@@ -72,5 +97,8 @@ class AppGraph(context: Context) {
 
     private companion object {
         const val RECOGNITION_INPUT = 640
+        /** 见 [RecognitionConfig.locatorInputSize]：320 会让框偏高而被尺寸判据拒掉 */
+        const val LOCATOR_INPUT = 640
+        const val LOCATOR_ASSET = "board_locator_v1.onnx"
     }
 }

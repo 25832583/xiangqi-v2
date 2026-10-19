@@ -35,11 +35,7 @@ class OnnxDetector(
 
     fun detect(frame: Bitmap, threshold: Float = config.confidenceThreshold): DetectorOutput {
         val lb = Letterbox.of(frame.width, frame.height, config.inputSize)
-        val square = letterboxed(frame, lb)
-        val chw = toChw(square)
-        if (square !== frame) square.recycle()
-
-        val raw = model.run(chw)
+        val raw = model.run(DetectorInput.tensor(frame, lb))
         val shape = model.lastOutputShape
         // 走到这里说明推理本身已经跑完了，所以「形状未知」跟 load() 成没成功无关 ——
         // 是形状的读取路径出了问题（真机上踩过一次：ORT 1.19 的 getOutputInfo()

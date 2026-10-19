@@ -1,5 +1,7 @@
 package com.xiangqi.v2.vision
 
+import com.xiangqi.v2.core.Board
+
 /**
  * 棋盘框「检不出来」时的两条兜底，以及「检到了但不像棋盘」的判据。
  *
@@ -119,4 +121,46 @@ object BoardBoxSynth {
             if (pieceW > 0f) box.width / pieceW else 0f,
             if (pieceH > 0f) box.height / pieceH else 0f
         )
+
+    /**
+     * 把**别人模型的框**归一成本项目习惯的「格线框」，绕中心等比缩放。
+     *
+     * ## 为什么要归一
+     * 不同模型的 `board` 标的不是同一个东西：本项目标的框紧贴**最外四条格线**，
+     * 尺寸恒为 8 个横向格距 × 9 个纵向格距（约 8×9 个棋子直径）；
+     * 而兜底模型 [`BoardLocator`] 标的含木纹边框的**整块棋盘**，实测大 19%
+     * （75 张：宽 9.34~9.96 倍子宽、高 10.38~11.63 倍子高）。
+     *
+     * 不归一化，[sizePlausible] 就会把 57/75 张真框判成「不像棋盘」而拒掉；
+     * 就算放宽窗口放进来，[BoardBoxAnchor.clipToBoard] 的裁剪窗口也会跟着宽 19%
+     * （pad 乘的是框宽/8），棋盘外的装饰立牌、被吃子托盘会被一起捞进拟合 ——
+     * 这正是「先裁框再拟合」当初要解决的问题。
+     *
+     * ## 为什么可以只靠子尺寸算
+     * 「格线框 = 8×9 个棋子直径」是这套棋盘的固定关系，与皮肤、分辨率无关。
+     * 缩放只绕中心做，中心不动，所以 [BoardBoxAnchor] 的锚定结果完全不受影响。
+     *
+     * ## 只缩不放
+     * 缩放系数被限在 [MIN_SCALE]..1.0：万一哪天换个模型、它的框本来就紧，
+     * 这里保持原样而不是把它放大（放大等于把棋盘外的东西拉进裁剪窗口）。
+     *
+     * @return 归一化后的框；[pieceW]/[pieceH] 非正时原样返回
+     */
+    fun toGridBox(box: Box, pieceW: Float, pieceH: Float): Box {
+        if (pieceW <= 0f || pieceH <= 0f) return box
+        if (box.width <= 0f || box.height <= 0f) return box
+        val sx = (Board.COLS - 1) * pieceW / box.width
+        val sy = (Board.ROWS - 1) * pieceH / box.height
+        val kx = sx.coerceIn(MIN_SCALE, 1f)
+        val ky = sy.coerceIn(MIN_SCALE, 1f)
+        if (kx == 1f && ky == 1f) return box
+        val cx = box.centerX
+        val cy = box.centerY
+        val w = box.width * kx * 0.5f
+        val h = box.height * ky * 0.5f
+        return Box(cx - w, cy - h, cx + w, cy + h)
+    }
+
+    /** 归一化最多缩到原尺寸的这个比例（即容许对方框最多比格线框大 1/0.78 ≈ 1.28 倍） */
+    const val MIN_SCALE = 0.78f
 }

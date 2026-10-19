@@ -25,6 +25,21 @@ data class RecognitionConfig(
     val boardConfThreshold: Float = 0.12f,
     /** 同类别 NMS 的 IoU 门槛 */
     val iouThreshold: Float = 0.5f,
+
+    /**
+     * 棋盘**兜底定位模型**的输入边长。
+     *
+     * 只在主模型的棋盘框不合格时才跑，所以这里不为速度牺牲精度：320 也测过，
+     * 置信只掉 0.03，但框明显偏高，会撞上尺寸判据的上界而被拒。
+     */
+    val locatorInputSize: Int = 640,
+    /**
+     * 兜底模型的解码门槛。
+     *
+     * 它只用来找棋盘，误检那一类框的代价已经被 [com.xiangqi.v2.vision.BoardPick]
+     * 的尺寸判据兜住，所以放到 0.10 尽量不漏 —— 实测这批皮肤上真框在 0.79 以上。
+     */
+    val locatorConfThreshold: Float = 0.10f,
     /**
      * 少于这么多个棋子就认为这一帧不可用。
      *

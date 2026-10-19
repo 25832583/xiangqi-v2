@@ -6,6 +6,22 @@ import com.xiangqi.v2.core.Board
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * 这一帧的棋盘框**从哪来**。
+ *
+ * 三种来源都产出等价的框，下游（裁框 / 尺寸过滤 / 格距范围 / 锚定）一行都不用改；
+ * 但排查时必须能区分 —— 出现 [LOCATOR] 说明主模型在这套皮肤上已经开始失手，
+ * 出现 [SYNTH] 说明连兜底模型也没给出来，只剩棋子包络反推。
+ */
+enum class BoardSource {
+    /** 主检测器检出，且通过形状 + 尺寸校验 */
+    MODEL,
+    /** 主模型给不出合格框，由兜底定位模型给出 */
+    LOCATOR,
+    /** 两个模型都没给出来，用棋子中心包络反推 */
+    SYNTH
+}
+
 /** 识别结果。失败路径也带耗时 —— 「慢在哪一段」必须能从日志直接读出来。 */
 sealed class RecognitionOutcome {
     abstract val elapsedMs: Long
@@ -20,12 +36,10 @@ sealed class RecognitionOutcome {
         val report: RecognitionReport.Report = RecognitionReport.Report.EMPTY,
         override val elapsedMs: Long,
         /**
-         * 这一帧的棋盘框是**从棋子反推**出来的，不是模型检出来的。
-         *
-         * 只用来在日志里标记 —— 走这条路说明这个皮肤/分辨率下棋盘框已经接近检不出来，
-         * 后续若再出现「识别不了」，先看日志里这个标记是不是变多了。
+         * 这一帧的棋盘框**从哪来**。日志里要打出来：频繁出现 [BoardSource.LOCATOR]
+         * 说明这套皮肤已经退化到主模型给不出框，该考虑补训练样本而不是继续加几何兜底。
          */
-        val synthesizedBoard: Boolean = false
+        val boardSource: BoardSource = BoardSource.MODEL
     ) : RecognitionOutcome()
 
     data class NoBoard(val boardCandidates: Int, override val elapsedMs: Long) : RecognitionOutcome()
@@ -58,7 +72,12 @@ sealed class RecognitionOutcome {
  */
 class BoardRecognizer(
     private val detector: OnnxDetector,
-    private val config: RecognitionConfig = RecognitionConfig()
+    private val config: RecognitionConfig = RecognitionConfig(),
+    /**
+     * 棋盘框的第二意见。为 null（或它自己不可用）时退回纯几何兜底，
+     * 行为与加这个参数之前完全一致。
+     */
+    private val locator: BoardLocator? = null
 ) {
 
     fun load() = detector.load()
@@ -78,11 +97,19 @@ class BoardRecognizer(
         val boxes = output.boards.filter { aspectOk(it.box) }
         val plausible = boxes.filter { BoardBoxSynth.sizePlausible(it.box, pieceW, pieceH) }
         val picked = plausible.maxByOrNull { it.score }?.box
-        // 一个都不像棋盘：用棋子中心包络反推（首末列/行有子时它**就是**棋盘框）
+        // 主模型给不出合格框时，问第二意见（懒兜底：正常帧根本不会走到这里）。
+        // 它的框同样要过尺寸判据 —— 放进来的不是"信任"，是"候选"。
+        val located = if (picked == null) locator?.locate(frame, pieceW, pieceH) else null
+        // 两个模型都没有，最后用棋子中心包络反推（首末列/行有子时它**就是**棋盘框）
         val boardBox = picked
+            ?: located
             ?: BoardBoxSynth.synth(output.pieces)
             ?: return@withContext RecognitionOutcome.NoBoard(output.boards.size, elapsed())
-        val synthesized = picked == null
+        val source = when {
+            picked != null -> BoardSource.MODEL
+            located != null -> BoardSource.LOCATOR
+            else -> BoardSource.SYNTH
+        }
 
         // 先裁到棋盘框：棋盘上方的装饰棋子立牌、下方被吃子托盘都是合法棋子外观，
         // 它们离棋盘中心 3~6 个格距，混进周期拟合会把 pitch/phase 一起带偏。
@@ -149,7 +176,7 @@ class BoardRecognizer(
             colOffset = anchor.colOffset,
             rowOffset = anchor.rowOffset
         )
-        RecognitionOutcome.Success(assembly, fitX, fitY, pieces.size, anchor, report, elapsed(), synthesized)
+        RecognitionOutcome.Success(assembly, fitX, fitY, pieces.size, anchor, report, elapsed(), source)
     }
 
     private fun aspectOk(box: Box): Boolean {

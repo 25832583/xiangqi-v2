@@ -126,4 +126,38 @@ class BoardBoxSynthTest {
         assertEquals(146f, w, 0.5f)
         assertEquals(146f, h, 0.5f)
     }
+
+    // ---------- toGridBox：把「整块棋盘框」归一成「格线框」 ----------
+
+    @Test
+    fun `挤进 19 百分之一的棋盘外框会被归一成 8x9 格`() {
+        // 兜底模型实测：1441x1630 的框配 146x145 的子（注意 Box 存的是四边坐标）
+        val frame = Box(0f, 700f, 1441f, 700f + 1630f)
+        val grid = BoardBoxSynth.toGridBox(frame, 146f, 145f)
+        assertEquals(8 * 146f, grid.width, 1f)
+        assertEquals(9 * 145f, grid.height, 1f)
+        assertEquals(frame.centerX, grid.centerX, 0.01f)
+        assertEquals(frame.centerY, grid.centerY, 0.01f)
+    }
+
+    @Test
+    fun `贴合格线的框不动`() {
+        val tight = Box(90f, 780f, 90f + 8 * 146f, 780f + 9 * 146f)
+        assertEquals(tight, BoardBoxSynth.toGridBox(tight, 146f, 146f))
+    }
+
+    @Test
+    fun `没有棋子尺寸时原样返回，不做猜测`() {
+        val frame = Box(0f, 700f, 1441f, 1630f)
+        assertEquals(frame, BoardBoxSynth.toGridBox(frame, 0f, 0f))
+    }
+
+    @Test
+    fun `离谱大的框最多只缩到 MIN_SCALE，剩下交给尺寸判据拒掉`() {
+        // 15 格宽：归一化需要缩 0.53，被 MIN_SCALE 夹住 -> 只剩 0.78，最终仍不合格
+        val huge = Box(0f, 0f, 15 * 146f, 17 * 146f)
+        val grid = BoardBoxSynth.toGridBox(huge, 146f, 146f)
+        assertEquals(15 * 146f * BoardBoxSynth.MIN_SCALE, grid.width, 1f)
+        assertFalse(BoardBoxSynth.sizePlausible(grid, 146f, 146f))
+    }
 }

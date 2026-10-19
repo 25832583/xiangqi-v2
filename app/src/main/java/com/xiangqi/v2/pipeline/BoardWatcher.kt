@@ -13,6 +13,7 @@ import com.xiangqi.v2.engine.EngineAnalysis
 import com.xiangqi.v2.infra.FailureReason
 import com.xiangqi.v2.infra.FrameDump
 import com.xiangqi.v2.infra.LogTags
+import com.xiangqi.v2.vision.BoardSource
 import com.xiangqi.v2.vision.RecognitionOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -532,12 +533,12 @@ class BoardWatcher(
                 rejectStreak = 0
                 // 采纳成功必须清掉单帧判据的计数：不清的话，下一帧会立刻又触发强制放行
                 fastPolicy.onAccepted()
-                if (outcome.synthesizedBoard) {
-                    // 走这条路说明该皮肤/分辨率下模型已经给不出合格的棋盘框了。
-                    // 记帧尺寸 + 子数，下次「识别不了」时能一眼看出是不是又退化到这一步。
+                if (outcome.boardSource != BoardSource.MODEL) {
+                    // 这条日志是「这套皮肤还能撑多久」的预警：
+                    // LOCATOR 变多 = 主模型正在失手；SYNTH = 连兜底也没给出来。
                     Log.w(
                         tag,
-                        "棋盘框由棋子反推（模型未给出合格框）· 帧 ${frame.width}x${frame.height} " +
+                        "棋盘框来源 ${outcome.boardSource} · 帧 ${frame.width}x${frame.height} " +
                             "· 子 ${outcome.pieceDetections}"
                     )
                 }
