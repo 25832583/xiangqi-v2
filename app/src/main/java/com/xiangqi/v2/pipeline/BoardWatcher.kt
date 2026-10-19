@@ -516,6 +516,12 @@ class BoardWatcher(
             }
 
             is RecognitionOutcome.NoBoard -> {
+                // 失败分支必须留一行日志：界面上只有一句给用户看的话，无法区分
+                // 「模型没检出棋盘」和「检出但宽高比被判不合格」—— 帧尺寸是排查关键。
+                Log.w(
+                    tag,
+                    "找不到棋盘：候选框 ${outcome.boardCandidates} 个，帧 ${frame.width}x${frame.height}"
+                )
                 emit(problem("找不到棋盘 · 请让九宫整盘完整显示", recognizeMs))
             }
 
@@ -523,6 +529,7 @@ class BoardWatcher(
                 // 残局只剩 3~5 颗子是完全正常的（单车/单兵对将），不能提示“遮挡”——
                 // 那会误导用户以为悬浮窗/弹窗挡了棋盘。真正的问题是棋子太少，
                 // 不足以同时确定格距和相位，见 [AxisFitter] 与 [RecognitionConfig.minPieces]。
+                Log.w(tag, "棋子太少：${outcome.count} 颗，帧 ${frame.width}x${frame.height}")
                 emit(
                     problem(
                         "只认出 ${outcome.count} 颗子 · 至少需要 3 颗棋子才能确定棋盘格线",
@@ -532,6 +539,11 @@ class BoardWatcher(
             }
 
             is RecognitionOutcome.PoorGeometry -> {
+                Log.w(
+                    tag,
+                    "格线拟合失败：残差 ${outcome.residualX}/${outcome.residualY} 格，" +
+                        "格距 ${outcome.pitchX}/${outcome.pitchY}px，帧 ${frame.width}x${frame.height}"
+                )
                 emit(
                     problem(
                         "棋盘格线对不上（残差 %.2f/%.2f 格）· 请退掉弹窗或换一张棋盘".format(
