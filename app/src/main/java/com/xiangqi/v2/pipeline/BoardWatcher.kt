@@ -10,6 +10,8 @@ import com.xiangqi.v2.core.Fen
 import com.xiangqi.v2.core.Side
 import com.xiangqi.v2.core.rule.StepResolver
 import com.xiangqi.v2.engine.EngineAnalysis
+import com.xiangqi.v2.infra.FailureReason
+import com.xiangqi.v2.infra.FrameDump
 import com.xiangqi.v2.infra.LogTags
 import com.xiangqi.v2.vision.RecognitionOutcome
 import kotlinx.coroutines.CancellationException
@@ -108,6 +110,13 @@ class BoardWatcher(
      * 实际是我们的窗口挡住了它。
      */
     private val captureShield: CaptureShield? = null,
+    /**
+     * 识别失败时把原帧存进相册，用于事后离线复算。
+     *
+     * 传 null 就是关掉 —— 这是诊断设施，不是功能；它不该影响采纳逻辑，
+     * 也不该在单元测试里被牵扯进来。
+     */
+    private val frameDump: FrameDump? = null,
     private val tag: String = LogTags.PANEL
 ) {
 
@@ -344,6 +353,15 @@ class BoardWatcher(
         val recognizeStarted = System.currentTimeMillis()
         val outcome = pipeline.recognize(frame)
         val recognizeMs = System.currentTimeMillis() - recognizeStarted
+        // 用户点「重新识别」是他明确觉得不对 —— 这一帧值得留一行完整摘要，
+        // 不管结论是什么。循环里的每帧不能这么打（700ms 一条会刷爆 logcat）。
+        if (force) {
+            Log.i(
+                tag,
+                "手动识别：帧 ${frame.width}x${frame.height} · " +
+                    "结论 ${outcome.javaClass.simpleName} · ${recognizeMs}ms"
+            )
+        }
 
         when (outcome) {
             is RecognitionOutcome.Success -> {
@@ -474,7 +492,13 @@ class BoardWatcher(
                             // 记住这个盘面，免得同一条原因每 700ms 重推一次。
                             failedKey = key
                             failedReason = decision.reason
-                            emit(failureSnapshot(decision.reason, recognizeMs))
+                            emit(
+                                failureSnapshot(
+                                    decision.reason,
+                                    recognizeMs,
+                                    dumpNote(frame, FailureReason.ILLEGAL_BOARD)
+                                )
+                            )
                             return
                         }
 
@@ -522,7 +546,7 @@ class BoardWatcher(
                     tag,
                     "找不到棋盘：候选框 ${outcome.boardCandidates} 个，帧 ${frame.width}x${frame.height}"
                 )
-                emit(problem("找不到棋盘 · 请让九宫整盘完整显示", recognizeMs))
+                emit(problem("找不到棋盘 · 请让九宫整盘完整显示" + dumpNote(frame, FailureReason.NO_BOARD), recognizeMs))
             }
 
             is RecognitionOutcome.TooFewPieces -> {
@@ -532,7 +556,8 @@ class BoardWatcher(
                 Log.w(tag, "棋子太少：${outcome.count} 颗，帧 ${frame.width}x${frame.height}")
                 emit(
                     problem(
-                        "只认出 ${outcome.count} 颗子 · 至少需要 3 颗棋子才能确定棋盘格线",
+                        "只认出 ${outcome.count} 颗子 · 至少需要 3 颗棋子才能确定棋盘格线" +
+                            dumpNote(frame, FailureReason.TOO_FEW_PIECES),
                         recognizeMs
                     )
                 )
@@ -548,7 +573,7 @@ class BoardWatcher(
                     problem(
                         "棋盘格线对不上（残差 %.2f/%.2f 格）· 请退掉弹窗或换一张棋盘".format(
                             outcome.residualX, outcome.residualY
-                        ),
+                        ) + dumpNote(frame, FailureReason.POOR_GEOMETRY),
                         recognizeMs
                     )
                 )
@@ -730,15 +755,28 @@ class BoardWatcher(
         redOnTop = _state.value.redOnTop
     )
 
-    private fun failureSnapshot(reason: String, recognizeMs: Long) = WatchSnapshot(
+    private fun failureSnapshot(
+        reason: String,
+        recognizeMs: Long,
+        suffix: String = ""
+    ) = WatchSnapshot(
         WatchPhase.PROBLEM,
-        "$reason · 点「重新识别」；若反复出现请把悬浮球拖离棋盘",
+        "$reason · 点「重新识别」；若反复出现请把悬浮球拖离棋盘$suffix",
         fen = _state.value.fen,
         board = _state.value.board,
         side = currentSide,
         recognizeMs = recognizeMs,
         redOnTop = _state.value.redOnTop
     )
+
+    /**
+     * 失败帧存档，返回要拼在提示后面的那句话（没存就没这句话）。
+     *
+     * 提示与存档必须同源：只在**真的受理了**才说「已存相册」。用户按这句话去相册翻，
+     * 翻不到就等于这条排查线索断了。
+     */
+    private fun dumpNote(frame: Bitmap, reason: FailureReason): String =
+        if (frameDump?.submit(frame, reason) == true) " · 诊断图已存相册 XiangqiDiag" else ""
 
     private fun hintForPhase(phase: WatchPhase, mode: SideMode): String = when (phase) {
         WatchPhase.READY -> "已按「${mode.label}」重算"

@@ -23,6 +23,7 @@ import com.xiangqi.v2.MainActivity
 import com.xiangqi.v2.R
 import com.xiangqi.v2.XiangqiApp
 import com.xiangqi.v2.di.AppGraph
+import com.xiangqi.v2.infra.FrameDump
 import com.xiangqi.v2.infra.LogTags
 import com.xiangqi.v2.pipeline.BoardWatcher
 import com.xiangqi.v2.pipeline.WatchPhase
@@ -91,7 +92,11 @@ class OverlayService : Service(), OverlayViews.Host {
             // 「相识别成炮了」，而真正的原因是自己的控件盖住了它。
             captureShield = object : BoardWatcher.CaptureShield {
                 override suspend fun <T> withHidden(block: suspend () -> T): T = hideOverlayDuring(block)
-            }
+            },
+            // 识别失败时把原帧存进相册（Pictures/XiangqiDiag，最多 5 张）。
+            // 只有原帧才能离线复算「同一张图为什么没认出来」—— 用户发的截图是压缩过的，
+            // 尺寸和真机抓帧不同，经常出现「离线全对、真机失败」却复现不了的情况。
+            frameDump = FrameDump(this)
         )
 
         startForegroundCompat()
