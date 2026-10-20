@@ -5,7 +5,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.util.Log
 import com.xiangqi.v2.config.RecognitionConfig
+import com.xiangqi.v2.infra.DiagLog
+import com.xiangqi.v2.infra.LogTags
 import com.xiangqi.v2.infra.OnnxModel
 
 data class DetectorOutput(
@@ -54,6 +57,24 @@ class OnnxDetector(
         val candidates = YoloDecoder.decode(raw, shape, Labels.COUNT, decodeFloor)
         val kept = Nms.byClass(candidates, config.iouThreshold)
         val filtered = kept.filter { it.isBoard || it.score >= threshold }
+        // 每帧一行，写进 DiagLog（logcat + 文件双写）。排查「候选框 0 个」时必须能
+        // 一次看全：是模型没给棋盘分、还是被门槛/NMS 吃掉、还是输入尺寸就不对。
+        // 这个机型会把 Log.* 静默，只写 logcat 等于没写。
+        val boardCands = candidates.filter { it.isBoard }
+        DiagLog.i(
+            LogTags.RECOGNIZER,
+            // 注意整串要用括号包起来再 .format —— `a + b.format(x)` 只格式化 b，
+            // a 里的 %.3f 会原样打出来（第一次加这条日志就踩了）。
+            ("检测 帧 ${frame.width}x${frame.height}" +
+                " 输入 ${lb.scaledWidth}x${lb.scaledHeight}" +
+                " pad ${lb.padX},${lb.padY}" +
+                " 输出 ${raw.size} 形状 ${shape.contentToString()}" +
+                " · 候选 ${candidates.size}" +
+                " · 棋盘候选 ${boardCands.size} 最高 %.3f" +
+                " NMS后 ${kept.count { it.isBoard }}" +
+                " · 过门槛棋子 ${filtered.count { !it.isBoard }}")
+                .format(boardCands.maxOfOrNull { it.score } ?: 0f)
+        )
         return DetectorOutput(filtered.map { it.copy(box = lb.toFrame(it.box)) }, lb)
     }
 

@@ -3,6 +3,7 @@ package com.xiangqi.v2
 import android.app.Application
 import android.content.Context
 import com.xiangqi.v2.di.AppGraph
+import com.xiangqi.v2.infra.DiagLog
 
 /**
  * 应用入口：只负责持有 [AppGraph]。
@@ -17,6 +18,8 @@ class XiangqiApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 先于一切：有些机型会把 Log.* 静默掉（见 [DiagLog]），诊断信息必须另存一份
+        DiagLog.init(filesDir)
         graph = AppGraph(this)
     }
 

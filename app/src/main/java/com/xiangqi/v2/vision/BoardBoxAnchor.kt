@@ -66,7 +66,22 @@ object BoardBoxAnchor {
      * 都是合法棋子外观，检测器会稳定检出。它们离棋盘中心动辄 3~6 个格距，
      * 直接参与周期拟合会把 pitch 和 phase 一起带偏，进而整盘错位。
      */
-    fun clipToBoard(pieces: List<Detection>, boardBox: Box, padCells: Float = 0.55f): List<Detection> {
+    /**
+     * 裁到棋盘范围。
+     *
+     * [padCells] 是**向外**留的格数，默认 0.75 —— 这个值不能小：
+     *
+     * JJ象棋「32强战」皮肤真机实测，主模型给的棋盘框比真实格线框小约 7%
+     * （1164x1276，而按格距 156.8x152.0 算真实格线框是 1254x1368）。
+     * 窗口按**框尺寸**推格距，于是窗口也跟着缩，最上面一行棋子的中心
+     * （y=888）掉到窗口上界（906）之外，**整整 9 颗子被裁掉** —— 表现是
+     * 「红帅 1 个／黑将 0 个」，看着像模型没检出来，其实裁之前都检到了。
+     *
+     * 0.55 是原来按「框=格线框」假设定的，在这类偏小的框上不够。
+     * 放到 0.75 仍然远小于棋盘外装饰（立牌、吃子托盘，离棋盘中心 3~6 格），
+     * 不会把外面那些「长得像棋子」的东西放进来。
+     */
+    fun clipToBoard(pieces: List<Detection>, boardBox: Box, padCells: Float = 0.75f): List<Detection> {
         val px = boardBox.width / (Board.COLS - 1)
         val py = boardBox.height / (Board.ROWS - 1)
         val xLo = boardBox.x0 - padCells * px
