@@ -141,7 +141,7 @@ class MainActivity : Activity() {
                 )
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "TACTICAL  ASSIST  /  V2"
+                        text = "TACTICAL  ASSIST  /  " + BuildConfig.VERSION_NAME
                         setTextColor(Hud.ACCENT)
                         textSize = 9f
                         typeface = Hud.narrow(true)

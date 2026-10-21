@@ -12,11 +12,17 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
+    }
+
+    // 抬头那行版本号直接读 BuildConfig.VERSION_NAME，避免"设置里 1.0、界面上 V2"
+    // 这种两处各自写死各自漂移的局面
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
