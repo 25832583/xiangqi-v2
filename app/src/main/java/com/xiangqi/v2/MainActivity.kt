@@ -4,19 +4,17 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.TextUtils
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -31,6 +29,8 @@ import com.xiangqi.v2.pipeline.AnalysisOutcome
 import com.xiangqi.v2.pipeline.GateMode
 import com.xiangqi.v2.service.CaptureAccessibilityService
 import com.xiangqi.v2.service.OverlayService
+import com.xiangqi.v2.ui.CutRectDrawable
+import com.xiangqi.v2.ui.Hud
 import com.xiangqi.v2.ui.MoveFormatter
 import com.xiangqi.v2.vision.RecognitionOutcome
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +51,11 @@ import kotlinx.coroutines.withContext
  *  3. 本地图片分析 —— 不打开游戏也能验证「识别 + 引擎」整条链路。
  *     这个入口很重要：真机出问题时第一步就是拿一张截图在这里跑，
  *     能立刻区分是「识别不行」还是「抓屏不行」。
+ *
+ * 2026-10-21：界面重做成 HUD 风（[Hud]），同时删掉了全部说明性文案。
+ * 原来的小字解释承担的是"作者怕用户不懂"的功能，而这块界面只有四件事要做；
+ * 说明越多越像文档，越不像工具。真需要解释的地方改成「点了就知道」——
+ * 未授权时点启动会直接跳系统设置。
  */
 class MainActivity : Activity() {
 
@@ -60,7 +65,7 @@ class MainActivity : Activity() {
     private lateinit var accessibilityStatus: TextView
     private lateinit var overlayStatus: TextView
     private lateinit var notificationStatus: TextView
-    private lateinit var startButton: Button
+    private lateinit var startButton: TextView
     private lateinit var imageResult: TextView
     private lateinit var preview: ImageView
 
@@ -69,6 +74,10 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         graph = XiangqiApp.graphOf(this)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Hud.BG
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = Hud.BG
         setContentView(buildContent())
     }
 
@@ -87,82 +96,91 @@ class MainActivity : Activity() {
     private fun buildContent(): View {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BG)
-            setPadding(dp(16), dp(20), dp(16), dp(28))
+            setBackgroundColor(Hud.BG)
+            setPadding(dp(16), dp(28), dp(16), dp(36))
         }
 
-        root.addView(
-            TextView(this).apply {
-                text = "象棋助手 v2"
-                setTextColor(TEXT)
-                textSize = 24f
-                typeface = Typeface.DEFAULT_BOLD
-            }
-        )
-        root.addView(
-            TextView(this).apply {
-                text = "YOLOv8 + ONNX Runtime 识别，皮卡鱼分析。识别结果在悬浮窗里看。"
-                setTextColor(DIM)
-                textSize = 12f
-                setPadding(0, dp(6), 0, dp(16))
-            }
-        )
+        root.addView(masthead())
+        root.addView(permissionBlock())
+        root.addView(runBlock())
+        root.addView(tuningBlock())
+        root.addView(imageBlock())
 
-        root.addView(permissionCard())
-        root.addView(runCard())
-        root.addView(tuningCard())
-        root.addView(imageCard())
-
-        root.addView(
-            TextView(this).apply {
-                text = "模型 detector_xqlink_v5（49 张真实残局逐颗 100%）\n引擎 皮卡鱼 2026-01-02 arm64 + 配套 NNUE 权重"
-                setTextColor(0xFF606060.toInt())
-                textSize = 10f
-                setPadding(0, dp(16), 0, 0)
-            }
-        )
-
-        return ScrollView(this).apply { addView(root) }
-    }
-
-    private fun permissionCard(): View {
-        val body = cardBody()
-        appendTitle(body, "第一步 · 三项授权")
-        accessibilityStatus = appendStatusRow(body, "无障碍服务（抓屏）") { openAccessibilitySettings() }
-        overlayStatus = appendStatusRow(body, "悬浮窗（显示分析）") { openOverlaySettings() }
-        notificationStatus = appendStatusRow(body, "通知（前台服务必需）") { requestNotification() }
-        return wrapCard(body)
-    }
-
-    private fun runCard(): View {
-        val body = cardBody()
-        appendTitle(body, "第二步 · 开始盯盘")
-        startButton = Button(this).apply {
-            text = "开始悬浮分析"
-            setBackgroundColor(ACCENT)
-            setTextColor(0xFF1A1A1A.toInt())
-            typeface = Typeface.DEFAULT_BOLD
-            textSize = 16f
-            setOnClickListener { toggleOverlay() }
+        return ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            setBackgroundColor(Hud.BG)
+            addView(root)
         }
-        body.addView(startButton, LinearLayout.LayoutParams(MATCH, dp(48)).apply { topMargin = dp(8) })
-        body.addView(
-            TextView(this).apply {
-                text = "开启后先把悬浮球拖到棋盘外（比如屏幕底边），再切到 JJ象棋。\n" +
-                    "面板展开时会自动暂停盯盘（它会挡住棋盘），收起后自动恢复。"
-                setTextColor(DIM)
-                textSize = 11f
-                setPadding(0, dp(10), 0, 0)
-            }
-        )
-        return wrapCard(body)
     }
 
-    private fun tuningCard(): View {
-        val body = cardBody()
-        appendTitle(body, "引擎参数（悬浮面板里也能临时调）")
+    /** 抬头：左侧一道锋线，主名 + 一行窄体编号。 */
+    private fun masthead(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(22))
+        }
+        row.addView(
+            View(this).apply {
+                setBackgroundColor(Hud.ACCENT)
+                layoutParams = LinearLayout.LayoutParams(dp(3), dp(42)).apply { rightMargin = dp(12) }
+            }
+        )
+        row.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "象棋助手"
+                        setTextColor(Hud.TXT)
+                        textSize = 26f
+                        typeface = Typeface.DEFAULT_BOLD
+                        letterSpacing = 0.05f
+                    }
+                )
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "TACTICAL  ASSIST  /  V2"
+                        setTextColor(Hud.ACCENT)
+                        textSize = 9f
+                        typeface = Hud.narrow(true)
+                        letterSpacing = 0.22f
+                        setPadding(0, dp(5), 0, 0)
+                    }
+                )
+            }
+        )
+        return row
+    }
+
+    private fun sectionWrap(code: String, title: String, build: (LinearLayout) -> Unit): View {
+        val box = Hud.section(this, code, title)
+        build(box)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(12))
+            addView(box)
+        }
+    }
+
+    private fun permissionBlock(): View = sectionWrap("01", "权限") { body ->
+        accessibilityStatus = permissionRow(body, "无障碍抓屏", true) { openAccessibilitySettings() }
+        overlayStatus = permissionRow(body, "悬浮窗", false) { openOverlaySettings() }
+        notificationStatus = permissionRow(body, "通知", false) { requestNotification() }
+    }
+
+    private fun runBlock(): View = sectionWrap("02", "运行") { body ->
+        startButton = Hud.primaryButton(this, "开始悬浮分析") { toggleOverlay() }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
+            ).apply { topMargin = dp(6) }
+        }
+        body.addView(startButton)
+    }
+
+    private fun tuningBlock(): View = sectionWrap("03", "引擎") { body ->
         val s = graph.settings
-
         appendSlider(
             body, "搜索深度", SettingsStore.MIN_DEPTH, SettingsStore.MAX_DEPTH, 1,
             get = { s.depth },
@@ -181,106 +199,78 @@ class MainActivity : Activity() {
             body, "思考上限", SettingsStore.MIN_MOVE_TIME, SettingsStore.MAX_MOVE_TIME, 100,
             get = { s.moveTimeMs },
             set = { s.moveTimeMs = it },
-            unit = "ms"
+            unit = " ms"
         )
-        appendGateSwitch(body, get = { s.gateMode }, set = { s.gateMode = it })
-        body.addView(
-            TextView(this).apply {
-                text = "深度是「上限」：算到就返回，复杂局面由「思考上限」兜底，所以调高不会更卡。" +
-                    "线程数超过手机大核数反而互相抢核（实测同深度下更多线程更慢）。"
-                setTextColor(0xFF606060.toInt())
-                textSize = 10f
-                setPadding(0, dp(6), 0, 0)
-            }
-        )
-        return wrapCard(body)
+        appendGateRow(body, get = { s.gateMode }, set = { s.gateMode = it })
     }
 
-    private fun imageCard(): View {
-        val body = cardBody()
-        appendTitle(body, "本地图片分析（不开游戏也能验证链路）")
-        body.addView(
-            Button(this).apply {
-                text = "选一张截图"
-                setBackgroundColor(CARD_ALT)
-                setTextColor(TEXT)
-                setOnClickListener { pickImage() }
-            },
-            LinearLayout.LayoutParams(MATCH, dp(44)).apply { topMargin = dp(8) }
-        )
+    private fun imageBlock(): View = sectionWrap("04", "单图分析") { body ->
+        Hud.ghostButton(this, "选择截图") { pickImage() }.let {
+            it.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)
+            ).apply { topMargin = dp(6) }
+            body.addView(it)
+        }
         preview = ImageView(this).apply {
             adjustViewBounds = true
             scaleType = ImageView.ScaleType.FIT_CENTER
             visibility = View.GONE
             setPadding(0, dp(10), 0, 0)
         }
-        body.addView(preview, LinearLayout.LayoutParams(MATCH, dp(220)))
+        body.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220)))
         imageResult = TextView(this).apply {
-            setTextColor(TEXT)
+            setTextColor(Hud.TXT)
             textSize = 13f
             typeface = Typeface.MONOSPACE
             setTextIsSelectable(true)
             setPadding(0, dp(10), 0, 0)
-            text = "选图后会显示 FEN 与推荐着法。\n用的是同一套模型和同一个引擎。"
+            text = ""
         }
         body.addView(imageResult)
-        return wrapCard(body)
     }
 
     // ---- 视图小工具 ----
 
-    private fun cardBody(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        background = GradientDrawable().apply {
-            setColor(CARD)
-            cornerRadius = dp(14).toFloat()
-        }
-        setPadding(dp(14), dp(14), dp(14), dp(14))
-    }
-
-    private fun wrapCard(body: LinearLayout): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(0, 0, 0, dp(12))
-        addView(body)
-    }
-
-    private fun appendTitle(parent: LinearLayout, text: String) {
-        parent.addView(
-            TextView(this).apply {
-                this.text = text
-                setTextColor(ACCENT)
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
-            }
-        )
-    }
-
-    private fun appendStatusRow(parent: LinearLayout, title: String, onClick: () -> Unit): TextView {
+    /** 一行授权项：名称铺满、右侧状态、尾随箭头。整行可点，不另设按钮。 */
+    private fun permissionRow(
+        parent: LinearLayout,
+        title: String,
+        first: Boolean,
+        onClick: () -> Unit
+    ): TextView {
+        if (!first) parent.addView(Hud.divider(this))
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(8), 0, 0)
-        }
-        val label = TextView(this).apply {
-            text = title
-            setTextColor(0xFFDDDDDD.toInt())
-            textSize = 13f
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val value = TextView(this).apply {
-            text = "检测中…"
-            textSize = 12f
-        }
-        val action = TextView(this).apply {
-            text = "去设置"
-            setTextColor(ACCENT)
-            textSize = 12f
-            setPadding(dp(12), dp(4), dp(4), dp(4))
+            isClickable = true
+            isFocusable = true
+            setPadding(0, dp(14), 0, dp(14))
             setOnClickListener { onClick() }
         }
-        row.addView(label)
+        row.addView(
+            TextView(this).apply {
+                text = title
+                setTextColor(Hud.TXT)
+                textSize = 14f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        )
+        val value = TextView(this).apply {
+            text = "▌ --"
+            textSize = 11f
+            typeface = Hud.narrow(true)
+            letterSpacing = 0.08f
+            setTextColor(Hud.TXT_MUTE)
+        }
         row.addView(value)
-        row.addView(action)
+        row.addView(
+            TextView(this).apply {
+                text = "›"
+                setTextColor(Hud.TXT_MUTE)
+                textSize = 15f
+                setPadding(dp(10), 0, 0, 0)
+            }
+        )
         parent.addView(row)
         return value
     }
@@ -295,32 +285,57 @@ class MainActivity : Activity() {
         set: (Int) -> Unit,
         unit: String = ""
     ) {
+        parent.addView(Hud.divider(this))
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(10), 0, 0)
+            setPadding(0, dp(12), 0, 0)
         }
-        val label = TextView(this).apply {
-            text = "$title  ${get()}$unit"
-            setTextColor(0xFFDDDDDD.toInt())
-            textSize = 13f
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
+        head.addView(
+            Hud.tagText(this, title, Hud.TXT_DIM, 12f).apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        )
+        val value = TextView(this).apply {
+            text = "${get()}$unit"
+            setTextColor(Hud.ACCENT)
+            textSize = 14f
+            typeface = Hud.narrow(true)
+            letterSpacing = 0.08f
+        }
+        head.addView(value)
+
         val steps = ((max - min) / step).coerceAtLeast(1)
         val bar = SeekBar(this).apply {
             this.max = steps
             progress = ((get() - min) / step).coerceIn(0, steps)
+            progressTintList = ColorStateList.valueOf(Hud.ACCENT)
+            progressBackgroundTintList = ColorStateList.valueOf(Hud.LINE_HI)
+            splitTrack = false
+            // 方块滑块替代系统圆球：圆球在这套硬边界面里是唯一一处"柔软"的东西
+            thumb = CutRectDrawable(
+                fill = Hud.ACCENT,
+                cutPx = dpf(3f),
+                codes = CutRectDrawable.BL,
+                intrinsic = dp(11)
+            )
+            setPadding(0, dp(2), 0, dp(2))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     if (!fromUser) return
-                    val value = min + progress * step
-                    label.text = "$title  $value$unit"
-                    set(value)
+                    val newValue = min + progress * step
+                    value.text = "$newValue$unit"
+                    set(newValue)
                 }
 
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
                 override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
             })
         }
-        wrap.addView(label)
+        wrap.addView(head)
         wrap.addView(bar)
         parent.addView(wrap)
     }
@@ -329,52 +344,31 @@ class MainActivity : Activity() {
      * 「多帧确认 / 单帧即采」的切换行。
      *
      * 用「标签 + 切换」而不是 Switch 控件：取值是枚举，将来可能不止两项，
-     * 循环式的写法不用跟着改布局。同时把两种模式的代价明文写出来 ——
-     * 这一项是手感与稳妥的取舍，不给代价说明等于让用户瞎猜。
+     * 循环式的写法不用跟着改布局。
      */
-    private fun appendGateSwitch(parent: LinearLayout, get: () -> GateMode, set: (GateMode) -> Unit) {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, 0)
-        }
+    private fun appendGateRow(parent: LinearLayout, get: () -> GateMode, set: (GateMode) -> Unit) {
+        parent.addView(Hud.divider(this))
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(15), 0, dp(2))
         }
-        val label = TextView(this).apply {
-            setTextColor(0xFFDDDDDD.toInt())
-            textSize = 13f
+        val label = Hud.tagText(this, "", Hud.TXT_DIM, 12f).apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         fun refresh(mode: GateMode) {
-            label.text = "采纳方式  ${mode.label}"
+            label.text = "采纳方式   ${mode.label}"
         }
         refresh(get())
         row.addView(label)
         row.addView(
-            TextView(this).apply {
-                text = "切换"
-                setTextColor(ACCENT)
-                textSize = 12f
-                setPadding(dp(12), dp(4), dp(4), dp(4))
-                setOnClickListener {
-                    val next = get().next()
-                    set(next)
-                    refresh(next)
-                }
+            Hud.chipButton(this, "切换") {
+                val next = get().next()
+                set(next)
+                refresh(next)
             }
         )
-        wrap.addView(row)
-        wrap.addView(
-            TextView(this).apply {
-                text = "多帧确认：连续两帧识别结果相同才采纳，慢一个扫描间隔，挡得住走子动画的中间态。\n" +
-                    "单帧即采：这一帧合法、且能由上一帧走一步得到就采纳，快一帧；中间态偶尔会闪出一个错着法。"
-                setTextColor(0xFF606060.toInt())
-                textSize = 10f
-                setPadding(0, dp(4), 0, 0)
-            }
-        )
-        parent.addView(wrap)
+        parent.addView(row)
     }
 
     // ---- 授权 ----
@@ -387,8 +381,8 @@ class MainActivity : Activity() {
     }
 
     private fun setStatus(view: TextView, ok: Boolean) {
-        view.text = if (ok) "已开启" else "未开启"
-        view.setTextColor(if (ok) 0xFF4CAF50.toInt() else 0xFFFF9800.toInt())
+        view.text = if (ok) "▌ 已开启" else "▌ 未开启"
+        view.setTextColor(if (ok) Hud.OK else Hud.WARN)
     }
 
     private fun isAccessibilityEnabled(): Boolean {
@@ -552,21 +546,14 @@ class MainActivity : Activity() {
 
     // ---- 小工具 ----
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = Hud.dp(this, value.toFloat())
+
+    private fun dpf(value: Float): Float = Hud.dpf(this, value)
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
     private companion object {
         const val REQ_IMAGE = 1001
         const val REQ_NOTIFICATION = 1002
-
-        const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
-
-        const val BG = 0xFF121212.toInt()
-        const val CARD = 0xFF1E1E1E.toInt()
-        const val CARD_ALT = 0xFF333333.toInt()
-        const val ACCENT = 0xFFFFD24A.toInt()
-        const val TEXT = 0xFFF2F2F2.toInt()
-        const val DIM = 0xFF9E9E9E.toInt()
     }
 }
