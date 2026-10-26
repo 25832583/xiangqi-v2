@@ -141,6 +141,13 @@ python tools/fetch_assets.py      # 模型 + 引擎，约 80MB
 - Android SDK 34
 - 无 GPU 需求，CPU 推理
 
+纯命令行构建还要一个 `local.properties` 告诉 Gradle SDK 在哪
+（用 Android Studio 打开工程会自动生成，命令行不会）：
+
+```properties
+sdk.dir=/path/to/Android/Sdk
+```
+
 ### 构建
 
 ```bash
