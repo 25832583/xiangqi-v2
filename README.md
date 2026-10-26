@@ -6,25 +6,71 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 > **本仓库只提供源码，不发布预编译 APK。** 这类工具一旦以「下载、安装、开箱可用」的形式
 > 传播，绝大多数用途会落在在线对局的实时提示上，超出本项目作为盘面识别与棋谱复盘研究的
-> 定位。需要成品请自行按[快速开始](#快速开始)构建，仅用于自己的离线复盘研究。
-
-**核心差异：不靠"修盘面"，靠几何自证。** 棋子的类别直接来自检测头，格距由棋子框中心做一维周期拟合求出——棋子站在格点上，这是最强的几何证据。没有第二级分类器，没有墨色启发式，没有象棋规则修补模块。
+> 定位。自己构建，用于自己的离线复盘研究。
 
 ---
 
-## 目录
+## 跑起来
 
-- [它能做什么](#它能做什么)
-- [识别精度](#识别精度)
-- [为什么这样做](#为什么这样做)
-- [快速开始](#快速开始)
-- [工程结构](#工程结构)
-- [已知限制](#已知限制)
-- [许可](#许可)
+四件事，全是复制粘贴。**前提**：JDK 25 + Android SDK 34 + Python 3（没有就先看[装环境](#装环境)）。
+
+### 1. 三条命令
+
+```bash
+git clone https://github.com/25832583/xiangqi-v2 && cd xiangqi-v2
+python tools/fetch_assets.py      # 下模型和引擎，约 80MB，自动校验 md5
+./gradlew assembleDebug           # 首次 1~3 分钟
+```
+
+产物：`app/build/outputs/apk/debug/app-debug.apk`，约 95MB，**权重已打包在内，装完即用**。
+
+命令行构建要先告诉 Gradle 你的 SDK 在哪（用 Android Studio 打开工程会自动生成，可跳过）：
+
+```bash
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties
+```
+
+### 2. 装到手机
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+或者把 APK 传到手机点安装（需允许「未知来源」）。
+
+### 3. 开三项权限
+
+打开 App，页首三行状态要全部变绿：
+
+| 权限 | 用来干什么 |
+|---|---|
+| **无障碍** | 截取屏幕做识别（不用每次授权，也不走 MediaProjection） |
+| **悬浮窗** | 在游戏画面上方显示面板 |
+| **通知** | 前台服务常驻，不被系统回收 |
+
+授完权限回到 App，如果某一行还是灰的，退出重进一次即可（状态在启动时读取）。
+
+### 4. 开始用
+
+```
+打开目标棋类 App → 点悬浮球 → 展开面板 → 自动识别并分析
+```
+
+面板可调搜索深度、线程数、盯盘节奏、采纳门槛（多帧确认 / 单帧即采）。
 
 ---
 
-## 它能做什么
+## 卡住了看这三条
+
+| 症状 | 原因与解法 |
+|---|---|
+| Gradle **卡十几分钟无输出** | AGP 9 在联网下 JDK 25 toolchain（100MB）。指向本地 JDK 并关掉自动下载，见[构建问题](#构建问题) |
+| `SDK location not found` | 缺 `local.properties`，按上面第 1 步写一行 `sdk.dir=` |
+| 编译过了但**识别没反应** | 主界面会直接列出缺哪个文件。多半是跳过了 `fetch_assets.py` |
+
+---
+
+## 跑起来是什么样
 
 在 Android 11+ 设备上：
 
@@ -35,18 +81,6 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 5. 悬浮面板显示建议着法与评分
 
 识别与引擎之间有 `BoardSanity` 校验——皮卡鱼遇到不可能的局面不是给个错着，而是直接 `CRITICAL ERROR: Unsupported position` 然后退出进程，所以必须先挡在门外。
-
-### 使用流程
-
-```
-安装 APK → 授予无障碍 + 悬浮窗 + 通知 → 打开目标棋类 App → 点悬浮球展开面板 → 自动识别并分析
-```
-
-面板可调搜索深度、线程数、盯盘节奏、采纳门槛（多帧确认 / 单帧即采）。
-
-自己构建的完整包里带着 NNUE 权重，装完即可用。若要做**只给身边人私下分享**的构建，
-用 `-PbundleNnue=false` 把不能对外再分发的文件裁出包外（见[打可分发的包](#打可分发的包)），
-拿包的人需要在「引擎 → NNUE 权重」导入一次自己的副本。
 
 ---
 
@@ -75,7 +109,9 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 ---
 
-## 为什么这样做
+## 为什么这样识别
+
+**核心思路：不靠"修盘面"，靠几何自证。** 棋子的类别直接来自检测头，格距由棋子框中心做一维周期拟合求出——棋子站在格点上，这是最强的几何证据。没有第二级分类器，没有墨色启发式，没有象棋规则修补模块。
 
 ### 1. 丢掉类别是最大的浪费
 
@@ -106,132 +142,6 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 ### 5. 一次推理
 
 每帧只有一次神经网络调用，耗时从"秒级不确定"变成"一次推理 + 两次一维搜索"。
-
----
-
-## 快速开始
-
-```bash
-git clone https://github.com/25832583/xiangqi-v2
-cd xiangqi-v2
-python tools/fetch_assets.py      # 模型 + 引擎，约 80MB
-./gradlew assembleDebug           # 产物在 app/build/outputs/apk/debug/
-```
-
-模型与引擎权重因体积和许可不入库（各自条款见 [NOTICE.md](NOTICE.md)）。
-`fetch_assets.py` 从各自官方来源补齐：下载、校验 md5、放到正确路径，再把引擎
-复制一份成 `libpikafish.so`。幂等，重复跑不会重下。
-
-- GitHub 慢：加 `--mirror https://gh-proxy.com/`
-- 先看缺什么：`--check`
-- 走替换证书的代理时报证书错误：`export SSL_CERT_FILE=/path/to/系统根证书.pem`
-
-### 打可分发的包
-
-> 这一节是给**私下分享**用的（比如给几个朋友），不是给公开发布用的——原因见文首说明。
-
-```bash
-./gradlew assembleDebug -PbundleNnue=false
-```
-
-> 用 `assembleDebug` 而不是 `assembleRelease`：本工程没有配置 release 签名，
-> `assembleRelease` 产出的是 `-unsigned.apk`，装不上设备。
-
-这个开关把两样**不能对外再分发**的东西裁出 APK：
-
-| 文件 | 体积 | 裁掉的原因 |
-|---|---|---|
-| `pikafish.nnue` | 53MB | 条款为「仅限个人非商业使用」，与引擎的 GPL 不是一回事 |
-| `board_locator_v1.onnx` | 10MB | 上游仓库没有许可文件（保留全部权利） |
-
-产物约 35MB（对照：带权重的完整包 95MB）。缺 `board_locator` 只少一层兜底，
-不影响可用；缺权重则引擎以无权重模式起步，**功能和识别都正常，只是棋力明显下降**。
-
-拿到包的人需要自己准备权重：从皮卡鱼官方 release 的 Android 包里解出 `pikafish.nnue`
-（约 53MB），装好 App 后进 **引擎 → NNUE 权重 → 导入** 选一次。导入会校验体积与文件头，
-存在 `filesDir/engine/` 下；之后再启动引擎就带着权重了。
-
-### 缺文件时的表现
-
-**不崩，但会静默失败。** 识别每帧抛的异常被上层吞成一句通用失败文案，界面上
-只表现为「点了没反应」—— 这是最难查的一类问题。所以主界面启动时做一次自检，
-缺哪个文件直接列在页首；点「开始悬浮分析」也会被拦住并说明原因。
-
-### 拿不到的那一个
-
-`board_locator_v1.onnx`（棋盘框兜底定位）来自一个**没有许可文件**的上游仓库，
-不可分发，脚本会跳过并明确说明。缺了 App 照常运行，只是主模型给不出合格棋盘框
-时少一层兜底（退回棋子包络反推）。
-
-> **为什么引擎要塞两份**：`assets/pikafish` 与 `jniLibs/arm64-v8a/libpikafish.so`
-> 逐位相同。Android 10 起应用不能执行自己可写目录里的文件（W^X），
-> `nativeLibraryDir` 是唯一带可执行权限的地方，所以引擎必须以 `.so` 形式随包装。
-> 这也是 `useLegacyPackaging = true` 必须开的原因 —— 让系统把它解压出来。
-
-### 环境要求
-
-- JDK 25（AGP 9 的 toolchain 要求）
-- Android SDK 34
-- 无 GPU 需求，CPU 推理
-
-纯命令行构建还要一个 `local.properties` 告诉 Gradle SDK 在哪
-（用 Android Studio 打开工程会自动生成，命令行不会）：
-
-```properties
-sdk.dir=/path/to/Android/Sdk
-```
-
-### 构建
-
-```bash
-./gradlew assembleDebug
-```
-
-产物在 `app/build/outputs/apk/debug/`。
-
-如果需要构建完自动把 APK 复制到某个目录，在**用户级**配置里设一次（不会进仓库）：
-
-```properties
-# ~/.gradle/gradle.properties
-apkDropDir=/path/to/drop
-```
-
-### 测试
-
-```bash
-./gradlew testDebugUnitTest
-```
-
-167 个 JVM 单测覆盖识别链路的每个纯函数：letterbox 往返、v5/v8 双解码布局等价、周期拟合恢复格距、吸附与残差门槛、冲突消解、超限裁剪、走子方推断、局面合法性校验。
-
-### 常见构建问题
-
-**Gradle 卡住十几分钟无输出**：AGP 9 在找 JDK 25 toolchain，去 `api.foojay.io` 下载 100MB temurin。网络受限时表现为假死。解决：指向本地 JDK 并关闭自动下载。
-
-```properties
-# ~/.gradle/gradle.properties
-org.gradle.java.installations.paths=/path/to/jdk25
-org.gradle.java.installations.auto-download=false
-```
-
-**APK 体积异常（比如 120MB 但预期 95MB）**：大资源工程用增量打包会留下 zip 空洞。跑 `./gradlew clean assembleDebug`。
-
-### 训练 / 评测工具链
-
-`tools/` 下是 Python 脚本，用于离线验证与训练（需要 ultralytics + onnxruntime）：
-
-```bash
-# 生成合成训练数据
-python tools/build_dataset.py --count 3000 --val 300
-
-# 训练
-python tools/train_yolo.py --data <dataset>/xiangqi.yaml --epochs 100
-
-# 在真值上评测算术指标
-python tools/eval_gt.py --model <model.onnx> --images <dir> --truth truth.tsv
-```
-
-多数脚本的默认路径需要按自己的数据目录调整。
 
 ---
 
@@ -293,8 +203,120 @@ app/src/main/java/com/xiangqi/v2/
 
 ⚠️ 特别注意：`pikafish.nnue` 权重**仅限个人非商业使用**，其条款与引擎代码的 GPL 不是一回事。商业使用需自行取得授权。
 
-正因为这条，对外分发的包要用 `-PbundleNnue=false` 构建：去掉权重和不可分发的
-`board_locator_v1.onnx` 之后，包里剩下的只有 GPL 的引擎二进制、Apache-2.0 的检测权重
-与 MIT/Apache 的运行时，再分发的对象才是干净的。
-
 第三方组件、不随仓库分发的模型文件、以及评测数据的版权说明，全部列在 [NOTICE.md](NOTICE.md)。
+
+### 为什么不分发 APK
+
+许可上其实算得清：去掉 `pikafish.nnue`（条款为仅限个人非商业）和 `board_locator_v1.onnx`（上游无许可文件）之后，包里剩下的只有 GPL 的引擎二进制、Apache-2.0 的检测权重、MIT/Apache 的运行时，再分发对象是干净的。
+
+真正的原因不在许可，在门槛。源码公开要求装 JDK 25、配 Android SDK、取 80MB 资产、编译——这几步天然把范围限制在愿意读代码的人。而一个可安装的成品包是另一种东西：下载、装上、开权限，就能对在线对局做实时提示。前者是技术作品，后者是作弊工具，中间只差一道打包工序。
+
+所以只发源码。想给身边几个人用，自己用 `-PbundleNnue=false` 打个包私下发，见下一节。
+
+---
+
+## 构建细节
+
+### 打可分发的包（给身边人私下分享）
+
+```bash
+./gradlew assembleDebug -PbundleNnue=false
+```
+
+> 用 `assembleDebug` 而不是 `assembleRelease`：本工程没配 release 签名，
+> `assembleRelease` 产出 `-unsigned.apk`，装不上设备。
+
+这个开关把两样**不能对外再分发**的东西裁出 APK：
+
+| 文件 | 体积 | 裁掉的原因 |
+|---|---|---|
+| `pikafish.nnue` | 53MB | 条款为「仅限个人非商业使用」，与引擎的 GPL 不是一回事 |
+| `board_locator_v1.onnx` | 10MB | 上游仓库没有许可文件（保留全部权利） |
+
+产物约 35MB（对照：带权重的完整包 95MB）。缺 `board_locator` 只少一层兜底，
+不影响可用；缺权重则引擎以无权重模式起步，**功能和识别都正常，只是棋力明显下降**。
+
+拿到包的人需要自己准备权重：从皮卡鱼官方 release 的 Android 包里解出 `pikafish.nnue`
+（约 53MB），装好 App 后进 **引擎 → NNUE 权重 → 导入** 选一次。导入会校验体积与文件头，
+存在 `filesDir/engine/` 下；之后再启动引擎就带着权重了。
+
+### 缺文件时的表现
+
+**不崩，但会静默失败。** 识别每帧抛的异常被上层吞成一句通用失败文案，界面上
+只表现为「点了没反应」—— 这是最难查的一类问题。所以主界面启动时做一次自检，
+缺哪个文件直接列在页首；点「开始悬浮分析」也会被拦住并说明原因。
+
+### 引擎为什么塞两份
+
+`assets/pikafish` 与 `jniLibs/arm64-v8a/libpikafish.so` 逐位相同。Android 10 起应用不能执行
+自己可写目录里的文件（W^X），`nativeLibraryDir` 是唯一带可执行权限的地方，所以引擎必须以
+`.so` 形式随包装。这也是 `useLegacyPackaging = true` 必须开的原因 —— 让系统把它解压出来。
+
+### 装环境
+
+| 需要 | 说明 |
+|---|---|
+| **JDK 25** | AGP 9 的 toolchain 要求，JDK 21 不行 |
+| **Android SDK 34** | 用 Android Studio 装最省事 |
+| Python 3 | 只用来跑备料脚本 |
+
+纯命令行构建还要一个 `local.properties` 告诉 Gradle SDK 在哪
+（用 Android Studio 打开工程会自动生成，命令行不会）：
+
+```properties
+sdk.dir=/path/to/Android/Sdk
+```
+
+无 GPU 需求，CPU 推理。
+
+### 测试
+
+```bash
+./gradlew testDebugUnitTest
+```
+
+174 个 JVM 单测覆盖识别链路的每个纯函数：letterbox 往返、v5/v8 双解码布局等价、周期拟合恢复格距、吸附与残差门槛、冲突消解、超限裁剪、走子方推断、局面合法性校验。
+
+### 构建问题
+
+**Gradle 卡住十几分钟无输出**：AGP 9 在找 JDK 25 toolchain，去 `api.foojay.io` 下载 100MB temurin。网络受限时表现为假死。解决：指向本地 JDK 并关闭自动下载。
+
+```properties
+# ~/.gradle/gradle.properties
+org.gradle.java.installations.paths=/path/to/jdk25
+org.gradle.java.installations.auto-download=false
+```
+
+**APK 体积异常（比如 120MB 但预期 95MB）**：大资源工程用增量打包会留下 zip 空洞。跑 `./gradlew clean assembleDebug`。
+
+**构建完想自动把 APK 复制到某目录**：在**用户级**配置里设一次（不会进仓库）：
+
+```properties
+# ~/.gradle/gradle.properties
+apkDropDir=/path/to/drop
+```
+
+**fetch_assets.py 的开关**：
+
+- GitHub 慢：加 `--mirror https://gh-proxy.com/`
+- 先看缺什么：`--check`
+- 走替换证书的代理时报证书错误：`export SSL_CERT_FILE=/path/to/系统根证书.pem`
+- 脚本**跳过 `board_locator_v1.onnx` 是预期行为**，不是失败：上游无许可文件，不可分发。
+  缺它 App 照常运行，只是主模型给不出合格棋盘框时少一层兜底（退回棋子包络反推）。
+
+### 训练 / 评测工具链
+
+`tools/` 下是 Python 脚本，用于离线验证与训练（需要 ultralytics + onnxruntime）：
+
+```bash
+# 生成合成训练数据
+python tools/build_dataset.py --count 3000 --val 300
+
+# 训练
+python tools/train_yolo.py --data <dataset>/xiangqi.yaml --epochs 100
+
+# 在真值上评测算术指标
+python tools/eval_gt.py --model <model.onnx> --images <dir> --truth truth.tsv
+```
+
+多数脚本的默认路径需要按自己的数据目录调整。
