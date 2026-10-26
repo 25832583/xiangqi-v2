@@ -24,6 +24,8 @@ python tools/fetch_assets.py      # 下模型和引擎，约 80MB，自动校验
 
 产物：`app/build/outputs/apk/debug/app-debug.apk`，约 95MB，**权重已打包在内，装完即用**。
 
+> **Windows**：在 PowerShell / cmd 里把 `./gradlew` 换成 `gradlew.bat`（Git Bash 用 `./gradlew`）。
+
 命令行构建要先告诉 Gradle 你的 SDK 在哪（用 Android Studio 打开工程会自动生成，可跳过）：
 
 ```bash
