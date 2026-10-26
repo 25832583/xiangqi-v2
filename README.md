@@ -12,57 +12,36 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 ## 跑起来
 
-四件事，全是复制粘贴。**前提**：JDK 25 + Android SDK 34 + Python 3（没有就先看[装环境](#装环境)）。
-
-### 1. 备好代码和模型
-
-**① 拿代码**
+**Windows 双击 `setup.bat`**；macOS / Linux 跑 `./setup.sh`。或者命令行：
 
 ```bash
 git clone https://github.com/25832583/xiangqi-v2
 cd xiangqi-v2
+python tools/setup.py
 ```
 
-**② 下模型和引擎**（约 80MB，自动校验 md5）
+一条命令干完四件事，每一步都会报结果：
+
+| 步骤 | 它替你做什么 |
+|---|---|
+| 1 | 找 Android SDK：环境变量 → local.properties → 常见安装位置依次试 |
+| 2 | 写 local.properties（只在缺失或不对时才改） |
+| 3 | 补模型和引擎，约 80MB |
+| 4 | 编译，自动选 `gradlew.bat` 或 `./gradlew`，顺手找 JDK 25 |
+
+产物 `app/build/outputs/apk/debug/app-debug.apk`，约 88~95MB。
+**模型和权重已经打在里面，装上就能用，不需要在 App 里导入任何东西。**
+
+只想看环境行不行，先体检（不改任何文件）：
 
 ```bash
-python tools/fetch_assets.py
+python tools/setup.py --check
 ```
 
-跑完应该看到四行 `[有]`，最后一行是「结论：可以编译运行」。差不多长这样：
+> 只有一种情况要「导入」：用 `-PbundleNnue=false` 打 35MB 窄包时，权重被裁在包外，
+> 得在「引擎 → NNUE 权重 → 导入」补一次。自己编的完整包不用管。
 
-```
-  [有] pikafish                       1.8MB
-  [有] pikafish.nnue                 53.2MB
-  [有] detector_xqlink_v5.onnx       28.6MB
-  [有] board_locator_v1.onnx         10.0MB
-```
-
-**③ 编译**（首次 1~3 分钟）
-
-```bash
-./gradlew assembleDebug
-```
-
-Windows 的 cmd / 命令提示符里不能写 `./`，改用：
-
-```bat
-gradlew.bat assembleDebug
-```
-
-产物：`app/build/outputs/apk/debug/app-debug.apk`，约 95MB。
-
-> **模型和权重会被打进这个 APK，装上就能用，不需要在 App 里导入任何东西。**
-> 那一步（「引擎 → NNUE 权重 → 导入」）只在用 `-PbundleNnue=false` 打 35MB 窄包时才需要。
-
-命令行构建还要一个 `local.properties` 告诉 Gradle SDK 在哪
-（用 Android Studio 打开工程会自动生成，可跳过）。手动建的话用文本编辑器写一行：
-
-```properties
-sdk.dir=/path/to/Android/Sdk
-```
-
-### 2. 装到手机
+### 装到手机
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -70,7 +49,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 或者把 APK 传到手机点安装（需允许「未知来源」）。
 
-### 3. 开三项权限
+### 开三项权限
 
 打开 App，页首三行状态要全部变绿：
 
@@ -82,7 +61,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 授完权限回到 App，如果某一行还是灰的，退出重进一次即可（状态在启动时读取）。
 
-### 4. 开始用
+### 开始用
 
 ```
 打开目标棋类 App → 点悬浮球 → 展开面板 → 自动识别并分析
@@ -92,13 +71,41 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 卡住了看这三条
+## 出问题了
 
-| 症状 | 原因与解法 |
+脚本会停在卡住的那一步，并说明下一步该做什么。几种常见情况：
+
+| 症状 | 解法 |
 |---|---|
-| Gradle **卡十几分钟无输出** | AGP 9 在联网下 JDK 25 toolchain（100MB）。指向本地 JDK 并关掉自动下载，见[构建问题](#构建问题) |
-| `SDK location not found` | 缺 `local.properties`，按上面第 1 步写一行 `sdk.dir=` |
-| 编译过了但**识别没反应** | 主界面会直接列出缺哪个文件。多半是跳过了 `fetch_assets.py` |
+| 报「找不到 Android SDK」 | 装一次 Android Studio 让它下 SDK；或 `--sdk 你的SDK路径` 指定 |
+| 报 JDK 版本不对，或**卡十几分钟无输出** | `--jdk` 指向 JDK 25（Android Studio 自带那个通常就是），详见[构建问题](#构建问题) |
+| 编译过了，但**识别一直没反应** | 主界面会列出缺哪个文件；跑一次 `python tools/fetch_assets.py` |
+| APK 明显大于 95MB | 增量打包留下 zip 空洞，加 `--clean` 重来 |
+| 下载慢或失败 | 加 `--mirror https://gh-proxy.com/` |
+
+### 想手动一步一步来
+
+脚本做的就是这些，四步。Windows 下 `./gradlew` 要换成 `gradlew.bat`。
+
+```bash
+git clone https://github.com/25832583/xiangqi-v2
+cd xiangqi-v2
+```
+
+```bash
+python tools/fetch_assets.py
+```
+
+```bash
+./gradlew assembleDebug
+```
+
+命令行构建还要一个 `local.properties` 告诉 Gradle SDK 在哪（用 Android Studio 打开工程会自动生成）。
+手动建的话，用文本编辑器写一行：
+
+```properties
+sdk.dir=/path/to/Android/Sdk
+```
 
 ---
 
