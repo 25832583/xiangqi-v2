@@ -3,6 +3,23 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+/**
+ * 是否把 NNUE 权重（`pikafish.nnue`，53MB）打进 APK。
+ *
+ * 默认打进去 —— 本机开发不想每次都手动导入一遍。
+ * 对外分发时必须关掉：`./gradlew assembleRelease -PbundleNnue=false`。
+ *
+ * 为什么：`pikafish.nnue` 的条款是「仅限个人非商业使用」，与引擎代码的 GPL 是两回事，
+ * 把它塞进公开分发的 APK 就是在再分发它。引擎二进制（GPL）可以随包给，权重不行。
+ * 关掉之后 App 仍能运行，只是引擎以无权重模式起步，用户需要自己从皮卡鱼官方取一份导入。
+ *
+ * 顺带把 `board_locator_v1.onnx` 也排除：上游仓库没有许可文件（保留全部权利），
+ * 同样不能随发行包分发。缺了它只是少一层兜底（退回棋子包络反推），不影响可用性。
+ */
+val bundleNnue: Boolean = providers.gradleProperty("bundleNnue")
+    .map { it.toBoolean() }
+    .getOrElse(true)
+
 android {
     namespace = "com.xiangqi.v2"
     compileSdk = 34
@@ -11,8 +28,8 @@ android {
         applicationId = "com.xiangqi.v2"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -44,6 +61,21 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+        }
+    }
+
+    /**
+     * 分发包的资产裁剪。
+     *
+     * `ignoreAssetsPattern` 是 aapt 的既有机制：`:` 分隔、命中即忽略、`!` 前缀表示豁免。
+     * 基础串是 AGP 的默认值，**必须原样带上** —— 只写新加的两项会让 `.git`、
+     * 各种缩略图缓存全被当成 asset 打进包。
+     */
+    androidResources {
+        if (!bundleNnue) {
+            ignoreAssetsPattern =
+                "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~" +
+                    ":pikafish.nnue:board_locator_v1.onnx"
         }
     }
 

@@ -5,6 +5,8 @@ import android.util.Log
 import com.xiangqi.v2.config.EngineConfig
 import com.xiangqi.v2.infra.AssetStore
 import com.xiangqi.v2.infra.LogTags
+import com.xiangqi.v2.infra.WeightsStore
+import com.xiangqi.v2.infra.WeightsRules
 import java.io.File
 
 /** 一套引擎落地文件：可执行文件 + 可选权重。 */
@@ -60,11 +62,30 @@ class DefaultEngineLocator(
         return result.toList()
     }
 
-    private fun resolveWeights(): String? = runCatching {
-        assets.extractTo(config.assetWeights, "engine/${config.assetWeights}").absolutePath
-    }.onFailure {
-        Log.w(tag, "解压 NNUE 权重失败，将以无权重模式运行", it)
-    }.getOrNull()
+    /**
+     * 权重来源。
+     *
+     * 顺序是「已落地的文件 → assets」，而不是反过来：用户导入的新权重必须盖住包里那份，
+     * 否则他换了权重却毫无变化。而分发包里根本没有 `pikafish.nnue` 这个 asset，
+     * 第一条分支就是它唯一的路径。
+     */
+    private fun resolveWeights(): String? {
+        val dest = File(context.filesDir, "${WeightsStore.DIR}/${config.assetWeights}")
+        if (dest.length() > 0L) {
+            Log.i(tag, "NNUE 权重：${dest.absolutePath}（${WeightsRules.mb(dest.length())}）")
+            return dest.absolutePath
+        }
+        if (!assets.has(config.assetWeights)) {
+            // 可分发包的正常状态：包里没有权重，用户也还没导入。不是故障，降级运行。
+            Log.w(tag, "包内无 ${config.assetWeights} 且未导入权重，引擎以无权重模式运行")
+            return null
+        }
+        return runCatching {
+            assets.extractTo(config.assetWeights, "${WeightsStore.DIR}/${config.assetWeights}").absolutePath
+        }.onFailure {
+            Log.w(tag, "解压 NNUE 权重失败，将以无权重模式运行", it)
+        }.getOrNull()
+    }
 }
 
 /**

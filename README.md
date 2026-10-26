@@ -40,6 +40,9 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 面板可调搜索深度、线程数、盯盘节奏、采纳门槛（多帧确认 / 单帧即采）。
 
+自己构建的完整包里带着 NNUE 权重，装完即可用。**对外分发的包不带权重**
+（原因见[打可分发的包](#打可分发的包)），需要在「引擎 → NNUE 权重」导入一次自己的副本。
+
 ---
 
 ## 识别精度
@@ -117,6 +120,26 @@ python tools/fetch_assets.py      # 模型 + 引擎，约 80MB
 - GitHub 慢：加 `--mirror https://gh-proxy.com/`
 - 先看缺什么：`--check`
 - 走替换证书的代理时报证书错误：`export SSL_CERT_FILE=/path/to/系统根证书.pem`
+
+### 打可分发的包
+
+```bash
+./gradlew assembleRelease -PbundleNnue=false
+```
+
+这个开关把两样**不能对外再分发**的东西裁出 APK：
+
+| 文件 | 体积 | 裁掉的原因 |
+|---|---|---|
+| `pikafish.nnue` | 53MB | 条款为「仅限个人非商业使用」，与引擎的 GPL 不是一回事 |
+| `board_locator_v1.onnx` | 10MB | 上游仓库没有许可文件（保留全部权利） |
+
+产物约 35MB（对照：带权重的完整包 95MB）。缺 `board_locator` 只少一层兜底，
+不影响可用；缺权重则引擎以无权重模式起步，**功能和识别都正常，只是棋力明显下降**。
+
+拿到包的人需要自己准备权重：从皮卡鱼官方 release 的 Android 包里解出 `pikafish.nnue`
+（约 53MB），装好 App 后进 **引擎 → NNUE 权重 → 导入** 选一次。导入会校验体积与文件头，
+存在 `filesDir/engine/` 下；之后再启动引擎就带着权重了。
 
 ### 缺文件时的表现
 
@@ -208,7 +231,7 @@ python tools/eval_gt.py --model <model.onnx> --images <dir> --truth truth.tsv
 app/src/main/java/com/xiangqi/v2/
   core/       纯 Kotlin：Board / Piece / Fen / Move / ChineseNotation
   config/     RecognitionConfig / EngineConfig
-  infra/      OnnxModel · OnnxDetector · AssetStore · DiagLog
+  infra/      OnnxModel · OnnxDetector · AssetStore · WeightsStore · DiagLog
   vision/     ← 识别核心
     Letterbox.kt        等比缩放 + 灰边，坐标可逆
     YoloDecoder.kt      v5 / v8 / 转置 v8 三种布局，由张量形状判定
@@ -259,5 +282,9 @@ app/src/main/java/com/xiangqi/v2/
 选择 GPL 不是随手定的：本项目随 APK 分发 Pikafish 二进制，而 Pikafish 继承 Stockfish 的 GPL v3。分发即触发 GPL 义务（提供许可全文 + 源码获取方式）。把整个工程统一到 GPL v3 是唯一自洽的做法。
 
 ⚠️ 特别注意：`pikafish.nnue` 权重**仅限个人非商业使用**，其条款与引擎代码的 GPL 不是一回事。商业使用需自行取得授权。
+
+正因为这条，对外分发的包要用 `-PbundleNnue=false` 构建：去掉权重和不可分发的
+`board_locator_v1.onnx` 之后，包里剩下的只有 GPL 的引擎二进制、Apache-2.0 的检测权重
+与 MIT/Apache 的运行时，再分发的对象才是干净的。
 
 第三方组件、不随仓库分发的模型文件、以及评测数据的版权说明，全部列在 [NOTICE.md](NOTICE.md)。

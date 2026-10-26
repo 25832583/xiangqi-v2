@@ -10,6 +10,7 @@ import com.xiangqi.v2.engine.DefaultEngineLocator
 import com.xiangqi.v2.engine.EngineLocator
 import com.xiangqi.v2.infra.AssetStore
 import com.xiangqi.v2.infra.OnnxModel
+import com.xiangqi.v2.infra.WeightsStore
 import com.xiangqi.v2.pipeline.AnalysisPipeline
 import com.xiangqi.v2.service.CaptureAccessibilityService
 import com.xiangqi.v2.vision.BoardLocator
@@ -32,7 +33,13 @@ class AppGraph(context: Context) {
 
     val assets = AssetStore(app)
 
+    /** NNUE 权重的落地与导入（权重不随分发包走，见 [WeightsStore] 的类注释）。 */
+    val weights = WeightsStore(app)
+
     val settings = SettingsStore(app)
+
+    /** 引擎有没有可用权重：包里带的，或用户导进去的，都算。 */
+    fun weightsReady(): Boolean = weights.ready() || assets.has(EngineConfig().assetWeights)
 
     /** 识别参数是标定值，不跟用户设置走。 */
     private val recognitionConfig = RecognitionConfig()
@@ -103,11 +110,15 @@ class AppGraph(context: Context) {
      * `python tools/fetch_assets.py` 就没有。而缺了的表现**不是报错**——
      * 识别每帧抛异常被上层吞掉，界面上只是「没反应」，
      * 排查成本全落在用户身上。所以启动时先自检一次，把缺的摆到明面上。
+     *
+     * **NNUE 权重不在这里**：它缺失不影响功能，只影响棋力，而且可分发包里本来就没有
+     * （见 [WeightsStore]）。把它算成「致命缺失」会让分发包每次启动都弹红框。
+     * 它有自己的提示位置 —— 主界面「引擎」分区那一行。
      */
     fun missingAssets(): List<String> {
         val engine = EngineConfig()
         val missing = mutableListOf<String>()
-        for (name in listOf(settings.modelAsset, engine.assetEngine, engine.assetWeights)) {
+        for (name in listOf(settings.modelAsset, engine.assetEngine)) {
             if (!assets.has(name)) missing += name
         }
         // 引擎二进制以 .so 形式随包安装（W^X 限制），不在 assets 里

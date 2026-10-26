@@ -32,6 +32,11 @@ Copyright (C) 2026 25832583
    any commercial use requires a separate commercial license from the Pikafish team」。
    将本项目用于任何商业目的前，必须自行取得该权重的商用授权。
 
+   **本项目对外分发的 APK 不包含该权重**（构建时用 `-PbundleNnue=false` 排除）。
+   分发出去的包只有 GPL 的引擎二进制，权重由使用者自行从上述官方渠道取得后，
+   在应用内「引擎 → NNUE 权重 → 导入」导入自己的副本。这样再分发的对象里
+   不含受该条款约束的文件。
+
 3. ONNX Runtime（onnxruntime-android 1.19.2）
    许可：MIT
    来源：https://github.com/microsoft/onnxruntime

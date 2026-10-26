@@ -1,6 +1,7 @@
 package com.xiangqi.v2
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -25,6 +26,7 @@ import com.xiangqi.v2.config.SettingsStore
 import com.xiangqi.v2.core.Fen
 import com.xiangqi.v2.core.Side
 import com.xiangqi.v2.di.AppGraph
+import com.xiangqi.v2.infra.WeightsRules
 import com.xiangqi.v2.pipeline.AnalysisOutcome
 import com.xiangqi.v2.pipeline.GateMode
 import com.xiangqi.v2.service.CaptureAccessibilityService
@@ -65,6 +67,8 @@ class MainActivity : Activity() {
     private lateinit var accessibilityStatus: TextView
     private lateinit var overlayStatus: TextView
     private lateinit var notificationStatus: TextView
+    private lateinit var weightsStatus: TextView
+    private lateinit var weightsChip: TextView
     private lateinit var startButton: TextView
     private lateinit var imageResult: TextView
     private lateinit var preview: ImageView
@@ -267,6 +271,7 @@ class MainActivity : Activity() {
 
     private fun tuningBlock(): View = sectionWrap("03", "引擎") { body ->
         val s = graph.settings
+        weightsRow(body)
         appendSlider(
             body, "搜索深度", SettingsStore.MIN_DEPTH, SettingsStore.MAX_DEPTH, 1,
             get = { s.depth },
@@ -457,12 +462,104 @@ class MainActivity : Activity() {
         parent.addView(row)
     }
 
+    // ---- NNUE 权重 ----
+
+    /**
+     * 「引擎」分区的第一行：权重状态 + 导入。
+     *
+     * 为什么单独占一行而不是塞进资产自检块：可分发包里**本来就没有**这个文件，
+     * 自检块是「出故障了」的位置，而这里描述的是「正常状态下的可选补齐」。
+     * 两者混在一起，会让每个分发包用户一打开就看到一个红框。
+     */
+    private fun weightsRow(parent: LinearLayout) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(14), 0, dp(12))
+        }
+        row.addView(
+            Hud.tagText(this, "NNUE 权重", Hud.TXT, 13f).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+                )
+            }
+        )
+        weightsStatus = Hud.tagText(this, "", Hud.TXT_MUTE, 11f)
+        row.addView(weightsStatus)
+        weightsChip = Hud.chipButton(this, "导入") { pickWeights() }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(10) }
+        }
+        row.addView(weightsChip)
+        parent.addView(row)
+    }
+
+    private fun refreshWeights() {
+        val ready = graph.weightsReady()
+        // 包里带来的那份还没解压时体积是 0，这时说「包内」比说「0.0MB」诚实
+        val localBytes = graph.weights.sizeBytes()
+        weightsStatus.text = when {
+            localBytes > 0 -> "▌ " + WeightsRules.mb(localBytes)
+            ready -> "▌ 包内"
+            else -> "▌ 未导入"
+        }
+        weightsStatus.setTextColor(if (ready) Hud.OK else Hud.WARN)
+        weightsChip.text = if (ready) "替换" else "导入"
+    }
+
+    private fun pickWeights() {
+        // 没有权重时先讲清楚去哪拿：直接弹文件选择器，用户选到的多半是张截图
+        if (!graph.weightsReady()) {
+            AlertDialog.Builder(this)
+                .setTitle("导入 NNUE 权重")
+                .setMessage(
+                    "需要 pikafish.nnue（约 53MB），可从皮卡鱼官方 release 的 Android 包中解出。\n\n" +
+                        "不导入也能用，但引擎以无权重模式运行，棋力明显下降。"
+                )
+                .setPositiveButton("选择文件") { _, _ -> openWeightsPicker() }
+                .setNegativeButton("取消", null)
+                .show()
+            return
+        }
+        openWeightsPicker()
+    }
+
+    private fun openWeightsPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            // `.nnue` 没有注册的 MIME，限定成某个类型会让选择器直接筛空
+            type = "*/*"
+        }
+        runCatching { startActivityForResult(intent, REQ_WEIGHTS) }
+            .onFailure { toast("打不开文件选择器") }
+    }
+
+    private fun importWeights(uri: Uri) {
+        weightsStatus.text = "▌ 导入中"
+        weightsStatus.setTextColor(Hud.ACCENT)
+        weightsChip.isEnabled = false
+        scope.launch {
+            val problem = withContext(Dispatchers.IO) { graph.weights.importFrom(uri) }
+            weightsChip.isEnabled = true
+            if (problem != null) {
+                toast(problem)
+            } else {
+                // 引擎可能已经以「无权重」起过了，进程里的 EvalFile 不会自己重读
+                graph.pipeline.releaseEngine()
+                toast("权重已导入")
+            }
+            refreshWeights()
+        }
+    }
+
     // ---- 授权 ----
 
     private fun refreshStatus() {
         setStatus(accessibilityStatus, isAccessibilityEnabled())
         setStatus(overlayStatus, Settings.canDrawOverlays(this))
         setStatus(notificationStatus, hasNotificationPermission())
+        refreshWeights()
         startButton.text = if (OverlayService.running) "停止悬浮分析" else "开始悬浮分析"
     }
 
@@ -552,6 +649,9 @@ class MainActivity : Activity() {
             toast("缺 ${missing.size} 个模型文件，见页首提示")
             return
         }
+        // 权重缺失不拦，但要说一声：无权重模式下引擎棋力掉一大截，
+        // 不说的话用户第一反应是「这识别/引擎不行」而不是「我少导了个文件」
+        if (!graph.weightsReady()) toast("未导入 NNUE 权重，引擎以无权重模式运行")
         if (!hasNotificationPermission()) {
             requestNotification()
             return
@@ -577,12 +677,15 @@ class MainActivity : Activity() {
             .onFailure { toast("打不开文件选择器") }
     }
 
-    @Deprecated("ActivityResult API 要多引一个依赖；这里只有一处选图，旧接口足够且零依赖")
+    @Deprecated("ActivityResult API 要多引一个依赖；这里只有两处选择器，旧接口足够且零依赖")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_IMAGE || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        analyzeImage(uri)
+        when (requestCode) {
+            REQ_IMAGE -> analyzeImage(uri)
+            REQ_WEIGHTS -> importWeights(uri)
+        }
     }
 
     private fun analyzeImage(uri: Uri) {
@@ -648,5 +751,6 @@ class MainActivity : Activity() {
     private companion object {
         const val REQ_IMAGE = 1001
         const val REQ_NOTIFICATION = 1002
+        const val REQ_WEIGHTS = 1003
     }
 }
