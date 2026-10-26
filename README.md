@@ -14,17 +14,42 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 四件事，全是复制粘贴。**前提**：JDK 25 + Android SDK 34 + Python 3（没有就先看[装环境](#装环境)）。
 
-### 1. 三条命令
+### 1. 备好代码和模型
+
+**① 拿代码**
 
 ```bash
-git clone https://github.com/25832583/xiangqi-v2 && cd xiangqi-v2
-python tools/fetch_assets.py      # 下模型和引擎，约 80MB，自动校验 md5
-./gradlew assembleDebug           # 首次 1~3 分钟
+git clone https://github.com/25832583/xiangqi-v2
+cd xiangqi-v2
 ```
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`，约 95MB，**权重已打包在内，装完即用**。
+**② 下模型和引擎**（约 80MB，自动校验 md5）
 
-> **Windows**：在 PowerShell / cmd 里把 `./gradlew` 换成 `gradlew.bat`（Git Bash 用 `./gradlew`）。
+```bash
+python tools/fetch_assets.py
+```
+
+跑完应该看到四行 `[有]`，最后一行是「结论：可以编译运行」。差不多长这样：
+
+```
+  [有] pikafish                       1.8MB
+  [有] pikafish.nnue                 53.2MB
+  [有] detector_xqlink_v5.onnx       28.6MB
+  [有] board_locator_v1.onnx         10.0MB
+```
+
+**③ 编译**（首次 1~3 分钟）
+
+```bash
+./gradlew assembleDebug
+```
+
+产物：`app/build/outputs/apk/debug/app-debug.apk`，约 95MB。
+
+> **模型和权重会被打进这个 APK，装上就能用，不需要在 App 里导入任何东西。**
+> 那一步（「引擎 → NNUE 权重 → 导入」）只在用 `-PbundleNnue=false` 打 35MB 窄包时才需要。
+
+> **Windows**：在原生终端里把 `./gradlew` 换成 `gradlew.bat`（Git Bash 用 `./gradlew`）。
 
 命令行构建要先告诉 Gradle 你的 SDK 在哪（用 Android Studio 打开工程会自动生成，可跳过）：
 

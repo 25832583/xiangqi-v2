@@ -81,11 +81,15 @@ def md5_of(path: Path) -> str:
 
 
 def human(size: int) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
-        if size < 1024 or unit == "GB":
-            return f"{size:.1f}{unit}" if unit != "B" else f"{size}B"
-        size /= 1024
-    return f"{size:.1f}GB"
+    """十进制口径（1MB = 1e6），与 App 内显示、皮卡鱼官网一致。
+
+    别用 1024：那会把 53.3MB 的权重量成 50.7MB，用户对着 App 里显示的数字
+    会怀疑自己下错了文件。
+    """
+    for unit, base in (("GB", 1_000_000_000), ("MB", 1_000_000), ("KB", 1_000)):
+        if size >= base:
+            return f"{size / base:.1f}{unit}"
+    return f"{size}B"
 
 
 def download(url: str, dest: Path, mirror: str = "") -> None:
