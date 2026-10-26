@@ -44,17 +44,22 @@ python tools/fetch_assets.py
 ./gradlew assembleDebug
 ```
 
+Windows 的 cmd / 命令提示符里不能写 `./`，改用：
+
+```bat
+gradlew.bat assembleDebug
+```
+
 产物：`app/build/outputs/apk/debug/app-debug.apk`，约 95MB。
 
 > **模型和权重会被打进这个 APK，装上就能用，不需要在 App 里导入任何东西。**
 > 那一步（「引擎 → NNUE 权重 → 导入」）只在用 `-PbundleNnue=false` 打 35MB 窄包时才需要。
 
-> **Windows**：在原生终端里把 `./gradlew` 换成 `gradlew.bat`（Git Bash 用 `./gradlew`）。
+命令行构建还要一个 `local.properties` 告诉 Gradle SDK 在哪
+（用 Android Studio 打开工程会自动生成，可跳过）。手动建的话用文本编辑器写一行：
 
-命令行构建要先告诉 Gradle 你的 SDK 在哪（用 Android Studio 打开工程会自动生成，可跳过）：
-
-```bash
-echo "sdk.dir=/path/to/Android/Sdk" > local.properties
+```properties
+sdk.dir=/path/to/Android/Sdk
 ```
 
 ### 2. 装到手机
@@ -306,20 +311,20 @@ sdk.dir=/path/to/Android/Sdk
 
 ### 构建问题
 
-**Gradle 卡住十几分钟无输出**：AGP 9 在找 JDK 25 toolchain，去 `api.foojay.io` 下载 100MB temurin。网络受限时表现为假死。解决：指向本地 JDK 并关闭自动下载。
+**Gradle 卡住十几分钟无输出**：AGP 9 在找 JDK 25 toolchain，去 `api.foojay.io` 下载 100MB temurin。网络受限时表现为假死。
+
+解决：在自己用户目录下的 `.gradle/gradle.properties` 里加两行（Windows 是 `C:\Users\<你>\.gradle\gradle.properties`，文件不存在就新建）：
 
 ```properties
-# ~/.gradle/gradle.properties
 org.gradle.java.installations.paths=/path/to/jdk25
 org.gradle.java.installations.auto-download=false
 ```
 
-**APK 体积异常（比如 120MB 但预期 95MB）**：大资源工程用增量打包会留下 zip 空洞。跑 `./gradlew clean assembleDebug`。
+**APK 体积异常（比如 120MB 但预期 95MB）**：大资源工程用增量打包会留下 zip 空洞。跑 `./gradlew clean assembleDebug`（Windows 用 `gradlew.bat clean assembleDebug`）。
 
-**构建完想自动把 APK 复制到某目录**：在**用户级**配置里设一次（不会进仓库）：
+**构建完想自动把 APK 复制到某目录**：在同一个用户级 `gradle.properties` 里加一行（不会进仓库）：
 
 ```properties
-# ~/.gradle/gradle.properties
 apkDropDir=/path/to/drop
 ```
 
@@ -333,17 +338,23 @@ apkDropDir=/path/to/drop
 
 ### 训练 / 评测工具链
 
-`tools/` 下是 Python 脚本，用于离线验证与训练（需要 ultralytics + onnxruntime）：
+`tools/` 下是 Python 脚本，用于离线验证与训练（需要 ultralytics + onnxruntime）。
+多数脚本的默认路径要按自己的数据目录调整。
+
+生成合成训练数据：
 
 ```bash
-# 生成合成训练数据
 python tools/build_dataset.py --count 3000 --val 300
-
-# 训练
-python tools/train_yolo.py --data <dataset>/xiangqi.yaml --epochs 100
-
-# 在真值上评测算术指标
-python tools/eval_gt.py --model <model.onnx> --images <dir> --truth truth.tsv
 ```
 
-多数脚本的默认路径需要按自己的数据目录调整。
+训练：
+
+```bash
+python tools/train_yolo.py --data <dataset>/xiangqi.yaml --epochs 100
+```
+
+在真值上评测算术指标：
+
+```bash
+python tools/eval_gt.py --model <model.onnx> --images <dir> --truth truth.tsv
+```
