@@ -4,6 +4,9 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 识别基于单次 YOLOv8n 推理 + 几何拟合规整，分析基于 Pikafish（中国象棋棋力最强的开源引擎）。
 
+> **不想自己构建？** 直接装 [预编译包 v1.1](https://github.com/25832583/xiangqi-v2/releases/latest)
+> （35MB，Android 11+ / arm64）。包内不含 NNUE 权重，首次启动后在「引擎」分区导入一次即可。
+
 **核心差异：不靠"修盘面"，靠几何自证。** 棋子的类别直接来自检测头，格距由棋子框中心做一维周期拟合求出——棋子站在格点上，这是最强的几何证据。没有第二级分类器，没有墨色启发式，没有象棋规则修补模块。
 
 ---
@@ -124,8 +127,11 @@ python tools/fetch_assets.py      # 模型 + 引擎，约 80MB
 ### 打可分发的包
 
 ```bash
-./gradlew assembleRelease -PbundleNnue=false
+./gradlew assembleDebug -PbundleNnue=false
 ```
+
+> 用 `assembleDebug` 而不是 `assembleRelease`：本工程没有配置 release 签名，
+> `assembleRelease` 产出的是 `-unsigned.apk`，装不上设备。
 
 这个开关把两样**不能对外再分发**的东西裁出 APK：
 
