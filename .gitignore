@@ -65,3 +65,6 @@ testsets/**/*.jpg
 
 # 离线排查时的临时裁图（cell_scores.py 之类产出）
 tools/_*.png
+
+# Kotlin 编译器缓存
+.kotlin/

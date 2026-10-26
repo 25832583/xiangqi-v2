@@ -44,26 +44,39 @@ Copyright (C) 2026 25832583
    许可：Apache License 2.0
    来源：https://github.com/Kotlin/kotlinx.coroutines
 
+6. atopx/chessboard（xqlink）—— 检测权重的训练基座
+   许可：Apache License 2.0
+   来源：https://github.com/atopx/chessboard
+
+   本项目使用的棋子检测权重 detector_xqlink_v5.onnx 是在该项目的公开权重上
+   微调导出的。依 Apache-2.0 第 4 条，此处保留来源声明；该权重同样以
+   Apache-2.0 提供，可自由使用、修改与再分发（需保留本声明）。
+
 
 ================================================================================
-二、不随仓库分发、需自行准备的模型文件
+二、模型文件：不随仓库提供，但可自动获取
 ================================================================================
 
-以下文件被 .gitignore 排除，克隆仓库后不会存在。请按说明自行获取。
+以下文件被 .gitignore 排除（体积原因），克隆仓库后不会存在。
+执行 `python tools/fetch_assets.py` 会自动下载、校验并放到正确路径。
 
-1. detector_xqlink_v5.onnx（棋子检测，15 类 YOLOv8n）
-   来源：https://github.com/atopx/chessboard（xqlink）的权重经微调/导出
-   说明：该权重为第三方产物，本项目仅作本地使用，未随仓库分发。
+1. detector_xqlink_v5.onnx（棋子检测，15 类 YOLOv8n，约 27MB）
+   来源：本项目 Release → https://github.com/25832583/xiangqi-v2/releases/tag/assets-v1
+   许可：Apache-2.0（见上文第一部分第 6 条）
 
-2. board_locator_v1.onnx（棋盘框兜底定位）
+2. pikafish 与 pikafish.nnue
+   由 fetch_assets.py 从皮卡鱼官方 Release 拉取指定版本（2026-01-02），
+   许可见第一部分第 1、2 条。
+
+3. board_locator_v1.onnx（棋盘框兜底定位，约 10MB）—— **无法自动获取**
    来源：https://github.com/DuyLeTran/DeepXiangQi 的 Reconstruction/weights/detect-ultra.pt
    说明：**该上游仓库当前未附带许可文件，即保留全部权利（All rights reserved）。**
          本项目仅在本地使用此权重，**不随仓库、Release 或任何形式的发行包分发**。
          如需自行使用，请自行向上游确认授权。
          缺失此文件时 App 仍可运行（退回棋子包络反推棋盘框），只是对低置信度
-         棋盘框的兜底能力下降。
+         棋盘框的兜底能力下降。fetch_assets.py 会明确跳过并说明这一点。
 
-3. 由本项目训练流程产出的权重（如自行训练所得），其许可由本项目 LICENSE 覆盖。
+4. 由本项目训练流程产出的权重（如自行训练所得），其许可由本项目 LICENSE 覆盖。
 
 
 ================================================================================

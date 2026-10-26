@@ -103,23 +103,37 @@ Android 上的实时中国象棋盘面识别 + 引擎分析工具。开着悬浮
 
 ## 快速开始
 
-### ⚠️ 先读这一节：模型文件不随仓库提供
+```bash
+git clone https://github.com/25832583/xiangqi-v2
+cd xiangqi-v2
+python tools/fetch_assets.py      # 模型 + 引擎，约 80MB
+./gradlew assembleDebug           # 产物在 app/build/outputs/apk/debug/
+```
 
-出于体积和许可原因，以下文件被 `.gitignore` 排除，**克隆后不会存在**。缺了它们 APK 能编译但运行时识别不可用。
+模型与引擎权重因体积和许可不入库（各自条款见 [NOTICE.md](NOTICE.md)）。
+`fetch_assets.py` 从各自官方来源补齐：下载、校验 md5、放到正确路径，再把引擎
+复制一份成 `libpikafish.so`。幂等，重复跑不会重下。
 
-| 文件 | 目标路径 | 说明 |
-|---|---|---|
-| `detector_xqlink_v5.onnx` | `app/src/main/assets/` | 棋子检测，约 28.6MB / 25200 锚点（v5 布局） |
-| `board_locator_v1.onnx` | `app/src/main/assets/` | 棋盘框兜底定位，约 10MB（INT8）。**可选**，缺了就退回棋子包络反推 |
-| `pikafish` | `app/src/main/assets/` | 引擎二进制，arm64，约 1.77MB |
-| `pikafish.nnue` | `app/src/main/assets/` | NNUE 权重，约 53.2MB |
-| `libpikafish.so` | `app/src/main/jniLibs/arm64-v8a/` | 与 `assets/pikafish` 逐位相同，需可执行权限 |
+- GitHub 慢：加 `--mirror https://gh-proxy.com/`
+- 先看缺什么：`--check`
+- 走替换证书的代理时报证书错误：`export SSL_CERT_FILE=/path/to/系统根证书.pem`
 
-引擎与权重是**绑定的一对**，只换其中一个会让引擎 `exit 1`。
+### 缺文件时的表现
 
-来源与许可见 [NOTICE.md](NOTICE.md)。权重获取需自行处理，本仓库不提供下载。
+**不崩，但会静默失败。** 识别每帧抛的异常被上层吞成一句通用失败文案，界面上
+只表现为「点了没反应」—— 这是最难查的一类问题。所以主界面启动时做一次自检，
+缺哪个文件直接列在页首；点「开始悬浮分析」也会被拦住并说明原因。
 
-> 把 `pikafish` 复制一份成 `libpikafish.so` 放进 `jniLibs/arm64-v8a/` 是有原因的：Android 10 起应用不能执行自己可写目录里的文件（W^X），`nativeLibraryDir` 是唯一带可执行权限的地方。所以 `useLegacyPackaging = true` 必须开，让系统把 `.so` 解压出来。
+### 拿不到的那一个
+
+`board_locator_v1.onnx`（棋盘框兜底定位）来自一个**没有许可文件**的上游仓库，
+不可分发，脚本会跳过并明确说明。缺了 App 照常运行，只是主模型给不出合格棋盘框
+时少一层兜底（退回棋子包络反推）。
+
+> **为什么引擎要塞两份**：`assets/pikafish` 与 `jniLibs/arm64-v8a/libpikafish.so`
+> 逐位相同。Android 10 起应用不能执行自己可写目录里的文件（W^X），
+> `nativeLibraryDir` 是唯一带可执行权限的地方，所以引擎必须以 `.so` 形式随包装。
+> 这也是 `useLegacyPackaging = true` 必须开的原因 —— 让系统把它解压出来。
 
 ### 环境要求
 

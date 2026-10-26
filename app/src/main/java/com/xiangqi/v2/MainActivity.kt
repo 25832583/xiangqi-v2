@@ -101,6 +101,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(masthead())
+        missingAssetsBlock()?.let { root.addView(it) }
         root.addView(permissionBlock())
         root.addView(runBlock())
         root.addView(tuningBlock())
@@ -162,6 +163,91 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, dp(12))
             addView(box)
         }
+    }
+
+    /**
+     * 资产自检。只在真缺文件时出现 —— 不缺就完全不占版面。
+     *
+     * 为什么值得单独占一块：缺模型的默认表现是「点了没反应」。识别每帧抛的异常
+     * 被上层吞成一句通用失败文案，看不出是文件没下载。而这份仓库的体积与许可
+     * 决定了模型不能随源码一起给，这种缺法是常态（每个新 clone 都是），
+     * 所以要在最显眼的位置直接说清楚，而不是等人去翻日志。
+     */
+    private fun missingAssetsBlock(): View? {
+        val missing = graph.missingAssets()
+        if (missing.isEmpty()) return null
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = CutRectDrawable(
+                fill = Hud.SURFACE,
+                stroke = Hud.ERR,
+                strokePx = dpf(1f),
+                cutPx = dpf(16f),
+                codes = CutRectDrawable.TR or CutRectDrawable.BR
+            )
+            setPadding(dp(14), dp(13), dp(14), dp(14))
+            addView(alarmHeader())
+            addView(
+                Hud.tagText(this@MainActivity, missing.joinToString("   /   "), Hud.ERR, 12f)
+                    .apply { setPadding(0, dp(8), 0, 0) }
+            )
+            addView(
+                Hud.tagText(
+                    this@MainActivity,
+                    "工程根目录运行  python tools/fetch_assets.py",
+                    Hud.TXT_DIM,
+                    12f
+                ).apply { setPadding(0, dp(6), 0, 0) }
+            )
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(12))
+            addView(box)
+        }
+    }
+
+    /** 与 [Hud.sectionHeader] 同构，只把标记色换成告警红。 */
+    private fun alarmHeader(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, 0, 0, dp(4))
+        addView(
+            TextView(this@MainActivity).apply {
+                text = "!!"
+                setTextColor(Hud.ERR)
+                textSize = 10f
+                typeface = Hud.narrow(true)
+                letterSpacing = 0.2f
+            }
+        )
+        addView(
+            View(this@MainActivity).apply {
+                setBackgroundColor(Hud.ERR)
+                layoutParams = LinearLayout.LayoutParams(dp(2), dp(11)).apply {
+                    marginStart = dp(8)
+                    marginEnd = dp(8)
+                }
+            }
+        )
+        addView(
+            TextView(this@MainActivity).apply {
+                text = "资产缺失"
+                setTextColor(Hud.TXT)
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                letterSpacing = 0.06f
+            }
+        )
+        addView(
+            View(this@MainActivity).apply {
+                setBackgroundColor(Hud.LINE)
+                layoutParams = LinearLayout.LayoutParams(0, dp(1), 1f).apply {
+                    marginStart = dp(10)
+                }
+            }
+        )
     }
 
     private fun permissionBlock(): View = sectionWrap("01", "权限") { body ->
@@ -457,6 +543,13 @@ class MainActivity : Activity() {
         if (!Settings.canDrawOverlays(this)) {
             toast("请先授予悬浮窗权限")
             openOverlaySettings()
+            return
+        }
+        // 缺模型时启动服务只会让每一帧都失败，界面却毫无反应。
+        // 在这里挡一次，把原因说到脸上。
+        val missing = graph.missingAssets()
+        if (missing.isNotEmpty()) {
+            toast("缺 ${missing.size} 个模型文件，见页首提示")
             return
         }
         if (!hasNotificationPermission()) {

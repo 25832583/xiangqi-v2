@@ -15,6 +15,7 @@ import com.xiangqi.v2.service.CaptureAccessibilityService
 import com.xiangqi.v2.vision.BoardLocator
 import com.xiangqi.v2.vision.BoardRecognizer
 import com.xiangqi.v2.vision.OnnxDetector
+import java.io.File
 
 /**
  * 应用级单例图谱。
@@ -94,6 +95,26 @@ class AppGraph(context: Context) {
     /** 采集源。无障碍服务实例随时可能被用户关掉，所以每次抓帧都重新取。 */
     fun frameSource(): FrameSource =
         AccessibilityFrameSource({ CaptureAccessibilityService.provider() })
+
+    /**
+     * 运行必需的资产缺哪些，空表示齐了。
+     *
+     * 这些文件因体积与许可不入库（见 NOTICE.md），克隆后不跑
+     * `python tools/fetch_assets.py` 就没有。而缺了的表现**不是报错**——
+     * 识别每帧抛异常被上层吞掉，界面上只是「没反应」，
+     * 排查成本全落在用户身上。所以启动时先自检一次，把缺的摆到明面上。
+     */
+    fun missingAssets(): List<String> {
+        val engine = EngineConfig()
+        val missing = mutableListOf<String>()
+        for (name in listOf(settings.modelAsset, engine.assetEngine, engine.assetWeights)) {
+            if (!assets.has(name)) missing += name
+        }
+        // 引擎二进制以 .so 形式随包安装（W^X 限制），不在 assets 里
+        val nativeLib = File(app.applicationInfo.nativeLibraryDir, "libpikafish.so")
+        if (!nativeLib.exists()) missing += "libpikafish.so"
+        return missing
+    }
 
     private companion object {
         const val RECOGNITION_INPUT = 640
