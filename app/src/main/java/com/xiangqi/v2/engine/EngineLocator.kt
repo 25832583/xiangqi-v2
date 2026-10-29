@@ -97,7 +97,9 @@ class DefaultEngineLocator(
 class UciEngineFactory(
     private val locator: EngineLocator,
     private val config: EngineConfig,
-    private val tag: String = LogTags.ENGINE
+    private val tag: String = LogTags.ENGINE,
+    /** 降到无权重模式时回调，参数是原因。UI 靠它把「权重已就绪」改成「版本不匹配」。 */
+    private val onDegraded: (String) -> Unit = {}
 ) {
 
     fun create(): AnalysisEngine {
@@ -106,15 +108,33 @@ class UciEngineFactory(
 
         val failures = ArrayList<String>(candidates.size)
         for (binaries in candidates) {
-            val engine = UciEngine(config, binaries.enginePath, binaries.weightsPath, tag)
             try {
-                engine.start()
-                return engine
+                return startWith(binaries.enginePath, binaries.weightsPath)
+            } catch (e: WeightIncompatibleException) {
+                // 权重认不出来不该让整个分析功能趴下。同一份引擎丢开权重再起一次：
+                // 棋力会掉到「能走棋」的水平，但比「点一下什么都没发生」有用得多。
+                Log.w(tag, "权重不可用，改以无权重模式启动：${e.message}")
+                onDegraded(e.message ?: "权重与引擎版本不匹配")
+                try {
+                    return startWith(binaries.enginePath, null)
+                } catch (e2: Exception) {
+                    failures.add("${binaries.enginePath}: ${e2.message}")
+                }
             } catch (e: Exception) {
                 failures.add("${binaries.enginePath}: ${e.message}")
-                runCatching { engine.close() }
             }
         }
         throw EngineException("所有候选引擎都无法启动：${failures.joinToString("；")}")
+    }
+
+    private fun startWith(enginePath: String, weightsPath: String?): AnalysisEngine {
+        val engine = UciEngine(config, enginePath, weightsPath, tag)
+        try {
+            engine.start()
+            return engine
+        } catch (e: Exception) {
+            runCatching { engine.close() }
+            throw e
+        }
     }
 }

@@ -43,18 +43,22 @@ ASSETS = ROOT / "app" / "src" / "main" / "assets"
 JNI_DIR = ROOT / "app" / "src" / "main" / "jniLibs" / "arm64-v8a"
 
 # 引擎与权重是绑定的一对，版本必须一起换
-PIKAFISH_VERSION = "2026-01-02"
+PIKAFISH_VERSION = "2026-09-06"
 PIKAFISH_ARCHIVE = f"Pikafish.{PIKAFISH_VERSION}.7z"
 PIKAFISH_URL = (
     "https://github.com/official-pikafish/Pikafish/releases/download/"
     f"Pikafish-{PIKAFISH_VERSION}/{PIKAFISH_ARCHIVE}"
 )
 
-# 官方包内路径 -> 落地到 assets/ 的文件名
-PIKAFISH_MEMBERS = {
-    "Android/pikafish-armv8": "pikafish",
-    "pikafish.nnue": "pikafish.nnue",
-}
+# 引擎二进制在官方包里的位置**换过一次**：2026-01 及更早是 Android/pikafish-armv8，
+# 2026-09 起改成包根目录的 Pikafish-Android-arm64-universal（多构建合成一个 universal）。
+# 写死一条路径，官方下次再整理一次包就又失效，而且是报「解压失败」这种指错方向的话。
+# 所以按顺序试，真找不到时把实际有的条目列出来。
+PIKAFISH_ENGINE_MEMBERS = (
+    "Pikafish-Android-arm64-universal",
+    "Android/pikafish-armv8",
+)
+PIKAFISH_WEIGHTS_MEMBER = "pikafish.nnue"
 
 DETECTOR_NAME = "detector_xqlink_v5.onnx"
 DETECTOR_URL = (
@@ -66,8 +70,8 @@ LOCATOR_NAME = "board_locator_v1.onnx"
 # 参考校验值，取自本项目实测通过的那一版。
 # 不匹配只警告不阻断——有人可能有意换版本，硬失败反而挡路。
 KNOWN_MD5 = {
-    "pikafish": "2c18301dc98c9f25a39d9122b489edf3",
-    "pikafish.nnue": "b5c9619b0e40d3c51ee5f63de68d016e",
+    "pikafish": "0363e738a7ef3dbb822d2a930ae042af",
+    "pikafish.nnue": "43819bf90a990918a71897339b3b9cb9",
     DETECTOR_NAME: "d346664b010e398b1a63de0a89225192",
 }
 
@@ -190,6 +194,46 @@ def extract_members(archive: Path, members: list, out_dir: Path) -> str:
     )
 
 
+def list_members(archive: Path):
+    """列出归档里的路径；一个后端都拿不到时返回 None。
+
+    存在的意义是**能说清楚「包里到底有什么」**：官方改过包结构一次，
+    当时的故障表现是「解压失败」——把人指向解压后端，而真因是文件名变了。
+    """
+    try:
+        import py7zr
+
+        with py7zr.SevenZipFile(archive) as z:
+            return z.getnames()
+    except ImportError:
+        pass
+    except Exception:
+        return None
+
+    for tar in _bsdtar_candidates():
+        r = subprocess.run(
+            [tar, "-tf", str(archive)], capture_output=True, text=True, errors="replace"
+        )
+        if r.returncode == 0:
+            return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+    for exe in ("7z", "7za", "7zz"):
+        path = shutil.which(exe)
+        if not path:
+            continue
+        r = subprocess.run(
+            [path, "l", "-ba", str(archive)], capture_output=True, text=True, errors="replace"
+        )
+        if r.returncode == 0:
+            names = []
+            for line in r.stdout.splitlines():
+                cols = line.split(None, 5)
+                if len(cols) == 6:
+                    names.append(cols[5].strip())
+            return names
+    return None
+
+
 def report(name: str, path: Path, optional: bool = False) -> bool:
     if path.exists() and path.stat().st_size > 0:
         got = md5_of(path)
@@ -205,21 +249,37 @@ def report(name: str, path: Path, optional: bool = False) -> bool:
 
 
 def ensure_pikafish(dest_dir: Path, mirror: str, force: bool) -> None:
-    targets = {member: dest_dir / name for member, name in PIKAFISH_MEMBERS.items()}
-    if not force and all(p.exists() and p.stat().st_size > 0 for p in targets.values()):
+    landed = (dest_dir / "pikafish", dest_dir / "pikafish.nnue")
+    if not force and all(p.exists() and p.stat().st_size > 0 for p in landed):
         print("皮卡鱼：已存在，跳过")
         return
 
     archive = CACHE_DIR / PIKAFISH_ARCHIVE
     if not (archive.exists() and archive.stat().st_size > 40 << 20):
-        print(f"皮卡鱼 {PIKAFISH_VERSION}：下载引擎包（约 53MB）…")
+        print(f"皮卡鱼 {PIKAFISH_VERSION}：下载引擎包（约 54MB）…")
         download(PIKAFISH_URL, archive, mirror)
 
-    print("  解出 arm64 二进制与权重…")
-    backend = extract_members(archive, list(PIKAFISH_MEMBERS), dest_dir)
+    names = list_members(archive)
+    picked = None
+    if names:
+        picked = next((m for m in PIKAFISH_ENGINE_MEMBERS if m in names), None)
+        if picked is None:
+            androidish = [n for n in names if "ndroid" in n or "arm" in n.lower()]
+            raise SystemExit(
+                "官方包里找不到 Android arm64 引擎 —— 包结构又变了。\n"
+                f"  脚本试过：{', '.join(PIKAFISH_ENGINE_MEMBERS)}\n"
+                f"  包里与 Android/arm 相关的条目：{', '.join(androidish) or '(一个都没有)'}\n"
+                "  处理办法：把实际的文件名加进 PIKAFISH_ENGINE_MEMBERS 的最前面。"
+            )
+    else:
+        # 列不出来（解压后端只支持按名抽取）就按最新的位置试，失败时再报
+        picked = PIKAFISH_ENGINE_MEMBERS[0]
+
+    print(f"  解出 arm64 二进制与权重（{picked}）…")
+    backend = extract_members(archive, [picked, PIKAFISH_WEIGHTS_MEMBER], dest_dir)
     print(f"  解压后端：{backend}")
 
-    for member, name in PIKAFISH_MEMBERS.items():
+    for member, name in ((picked, "pikafish"), (PIKAFISH_WEIGHTS_MEMBER, "pikafish.nnue")):
         src = dest_dir / member
         if not src.exists():
             raise SystemExit(f"包里没找到 {member}，官方包结构可能变了")

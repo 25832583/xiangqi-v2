@@ -12,7 +12,7 @@ import java.util.Locale
  * NNUE 权重的落地位置与导入。
  *
  * ## 为什么这个文件要单独管
- * `pikafish.nnue`（53MB）的条款是「仅限个人非商业使用」，与引擎代码的 GPL 不同源，
+ * `pikafish.nnue`（约 50.7MB）的条款是「仅限个人非商业使用」，与引擎代码的 GPL 不同源，
  * 不能随 APK 对外分发。于是它有两个入口：
  *  - 开发包：`fetch_assets.py` 下到 `assets/`，[AssetStore] 解压到
  *    `filesDir/engine/pikafish.nnue`；
@@ -130,7 +130,7 @@ class WeightsStore(
  */
 object WeightsRules {
 
-    /** 已知权重 53MB。8MB 是「小得不像权重」的下限，用来挡住误选图片、文档。 */
+    /** 已知权重约 50.7MB。8MB 是「小得不像权重」的下限，用来挡住误选图片、文档。 */
     const val MIN_BYTES = 8L * 1024 * 1024
 
     /** 上限只防误选视频把存储写满，不是格式约束。 */
@@ -141,8 +141,9 @@ object WeightsRules {
     /**
      * 皮卡鱼的 `.nnue` 是 zstd 压缩帧，头 4 字节固定为 `28 B5 2F FD`。
      *
-     * 只判格式不验内容：完整哈希要在 53MB 上跑一遍，而它的收益仅仅是「权重的版本对不对」——
-     * 版本不对时引擎自己会报 `info string`，那条信息比哈希更有用。
+     * 只判格式不验内容：完整哈希要在 50MB 上跑一遍，而它的收益仅仅是「权重的版本对不对」——
+     * 版本不对时引擎自己会报 `info string`，那条信息比哈希更有用，而且这里根本
+     * 没法知道引擎认哪一版（见 [looksLikeWeightMismatch]）。
      */
     val MAGIC = byteArrayOf(0x28, 0xB5.toByte(), 0x2F, 0xFD.toByte())
 
@@ -159,8 +160,23 @@ object WeightsRules {
     }
 
     /**
+     * 引擎输出里是否出现「网络文件加载失败」的痕迹。
+     *
+     * 皮卡鱼加载权重失败时打的是这两句，然后自杀：
+     *   info string ERROR: Network evaluation parameters compatible with the engine must be available.
+     *   info string ERROR: The network file ... was not loaded successfully.
+     *
+     * 判据取 `network` / `evalfile` 两个词（不分大小写）：够具体，不至于把 CPU 不支持、
+     * 路径不存在这类别的原因错判成权重问题 —— 误判的代价是丢掉本来能用的权重去降级。
+     */
+    fun looksLikeWeightMismatch(lines: List<String>): Boolean = lines.any { line ->
+        val lower = line.lowercase(Locale.US)
+        "network" in lower || "evalfile" in lower
+    }
+
+    /**
      * 十进制口径（1MB = 1,000,000 字节），跟 README、APK 体积、皮卡鱼官网的说法一致。
-     * 用 1048576 会在界面上把同一个文件显示成 50.7MB，跟用户下载时看到的 53MB 对不上。
+     * 用 1048576 会把 50,706,378 字节显示成 48.4MB，跟用户下载时看到的 50.7MB 对不上。
      */
     fun mb(bytes: Long): String = String.format(Locale.US, "%.1fMB", bytes / 1_000_000.0)
 }

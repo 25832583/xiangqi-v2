@@ -5,6 +5,7 @@ import com.xiangqi.v2.config.EngineConfig
 import com.xiangqi.v2.core.Move
 import com.xiangqi.v2.infra.LogTags
 import com.xiangqi.v2.infra.SectionTimer
+import com.xiangqi.v2.infra.WeightsRules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -108,6 +109,14 @@ class UciEngine(
             }
             send("isready")
             if (!readUntil("readyok", config.startupTimeoutMs)) {
+                // 引擎因权重加载失败会**打印几行错误后立刻退出**，此时 readUntil 是读到
+                // 流结束而返回 false，并不真等满超时。如果照原样报「5000ms 内没响应
+                // readyok」，人会去怀疑超时、去调大 timeout，而真实原因是版本不匹配。
+                if (looksLikeWeightMismatch()) {
+                    throw WeightIncompatibleException(
+                        "权重与引擎版本不匹配，引擎拒绝加载：${weightsPath ?: "(未指定)"}"
+                    )
+                }
                 throw EngineException("引擎未在 ${config.startupTimeoutMs}ms 内响应 readyok")
             }
             // `setoption name EvalFile` 只是登记路径，**真正的权重加载发生在
@@ -280,6 +289,16 @@ class UciEngine(
             if (!line.startsWith("id ") && !line.startsWith("option ")) remember(line)
         }
         return false
+    }
+
+    /**
+     * 诊断缓冲里是否留下了「网络文件加载失败」的痕迹。
+     *
+     * 判据本身在 [WeightsRules.looksLikeWeightMismatch]（纯函数，好测）——
+     * 这里只负责把缓冲递过去。
+     */
+    private fun looksLikeWeightMismatch(): Boolean = synchronized(recentLines) {
+        WeightsRules.looksLikeWeightMismatch(recentLines.toList())
     }
 
     /** 超时兜底：把管道里到 bestmove 为止的残留输出丢掉，避免污染下一次分析。 */

@@ -29,7 +29,8 @@ python tools/setup.py
 | 3 | 补模型和引擎，约 80MB |
 | 4 | 编译，自动选 `gradlew.bat` 或 `./gradlew`，顺手找 JDK 25 |
 
-产物 `app/build/outputs/apk/debug/app-debug.apk`，约 88~95MB。
+产物 `app/build/outputs/apk/debug/app-debug.apk`，约 87MB（自动备料会跳过 `board_locator`；
+自己补齐后约 93MB）。
 **模型和权重已经打在里面，装上就能用，不需要在 App 里导入任何东西。**
 
 只想看环境行不行，先体检（不改任何文件）：
@@ -80,7 +81,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 报「找不到 Android SDK」 | 装一次 Android Studio 让它下 SDK；或 `--sdk 你的SDK路径` 指定 |
 | 报 JDK 版本不对，或**卡十几分钟无输出** | `--jdk` 指向 JDK 25（Android Studio 自带那个通常就是），详见[构建问题](#构建问题) |
 | 编译过了，但**识别一直没反应** | 主界面会列出缺哪个文件；跑一次 `python tools/fetch_assets.py` |
-| APK 明显大于 95MB | 增量打包留下 zip 空洞，加 `--clean` 重来 |
+| APK 明显大于 93MB | 增量打包留下 zip 空洞，加 `--clean` 重来 |
 | 下载慢或失败 | 加 `--mirror https://gh-proxy.com/` |
 
 ### 想手动一步一步来
@@ -259,25 +260,34 @@ app/src/main/java/com/xiangqi/v2/
 ### 打可分发的包（给身边人私下分享）
 
 ```bash
-./gradlew assembleDebug -PbundleNnue=false
+./gradlew clean assembleDebug -PbundleNnue=false
 ```
 
 > 用 `assembleDebug` 而不是 `assembleRelease`：本工程没配 release 签名，
 > `assembleRelease` 产出 `-unsigned.apk`，装不上设备。
+>
+> **`clean` 不能省。** 这个开关靠改动资源打包的过滤规则生效，而 AGP 没把它算进
+> 增量构建的输入：先打过完整包、再直接加 `-PbundleNnue=false` 重建，拿到的还是
+> 一个 93MB 的包，里面权重照样在 —— 一眼看不出区别，直到你把它发给别人。
 
 这个开关把两样**不能对外再分发**的东西裁出 APK：
 
 | 文件 | 体积 | 裁掉的原因 |
 |---|---|---|
-| `pikafish.nnue` | 53MB | 条款为「仅限个人非商业使用」，与引擎的 GPL 不是一回事 |
+| `pikafish.nnue` | 50.7MB | 条款为「仅限个人非商业使用」，与引擎的 GPL 不是一回事 |
 | `board_locator_v1.onnx` | 10MB | 上游仓库没有许可文件（保留全部权利） |
 
-产物约 35MB（对照：带权重的完整包 95MB）。缺 `board_locator` 只少一层兜底，
+产物约 35.8MB（对照：带权重的完整包 93MB）。缺 `board_locator` 只少一层兜底，
 不影响可用；缺权重则引擎以无权重模式起步，**功能和识别都正常，只是棋力明显下降**。
 
-拿到包的人需要自己准备权重：从皮卡鱼官方 release 的 Android 包里解出 `pikafish.nnue`
-（约 53MB），装好 App 后进 **引擎 → NNUE 权重 → 导入** 选一次。导入会校验体积与文件头，
-存在 `filesDir/engine/` 下；之后再启动引擎就带着权重了。
+拿到包的人需要自己准备权重：从皮卡鱼官方 release 的 **2026-09-06** 那一版里解出
+`pikafish.nnue`（50.7MB），装好 App 后进 **引擎 → NNUE 权重 → 导入** 选一次。
+导入会校验体积与文件头，存在 `filesDir/engine/` 下；之后再启动引擎就带着权重了。
+
+> **权重与引擎必须同一次发布。** 皮卡鱼的 nnue 与引擎强绑定，换一版就拒绝加载
+> （网络结构对不上）。官方 release 页默认展示最新版，直接下那个是不行的。
+> 版本不匹配时引擎会拒绝并退出，App 会自动丢掉权重、以无权重模式继续跑，
+> 界面上「NNUE 权重」显示为黄色的**版本不匹配** —— 不会整个功能不可用，但棋力会掉。
 
 ### 缺文件时的表现
 
@@ -314,7 +324,7 @@ sdk.dir=/path/to/Android/Sdk
 ./gradlew testDebugUnitTest
 ```
 
-174 个 JVM 单测覆盖识别链路的每个纯函数：letterbox 往返、v5/v8 双解码布局等价、周期拟合恢复格距、吸附与残差门槛、冲突消解、超限裁剪、走子方推断、局面合法性校验。
+178 个 JVM 单测覆盖识别链路的每个纯函数：letterbox 往返、v5/v8 双解码布局等价、周期拟合恢复格距、吸附与残差门槛、冲突消解、超限裁剪、走子方推断、局面合法性校验。
 
 ### 构建问题
 
@@ -327,7 +337,7 @@ org.gradle.java.installations.paths=/path/to/jdk25
 org.gradle.java.installations.auto-download=false
 ```
 
-**APK 体积异常（比如 120MB 但预期 95MB）**：大资源工程用增量打包会留下 zip 空洞。跑 `./gradlew clean assembleDebug`（Windows 用 `gradlew.bat clean assembleDebug`）。
+**APK 体积异常（比如 120MB 但预期 93MB）**：大资源工程用增量打包会留下 zip 空洞。跑 `./gradlew clean assembleDebug`（Windows 用 `gradlew.bat clean assembleDebug`）。
 
 **构建完想自动把 APK 复制到某目录**：在同一个用户级 `gradle.properties` 里加一行（不会进仓库）：
 

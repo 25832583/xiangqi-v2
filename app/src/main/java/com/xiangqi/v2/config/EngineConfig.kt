@@ -27,4 +27,16 @@ data class EngineConfig(
     val nativeLibName: String = "libpikafish.so",
     /** 额外的 UCI setoption，键为选项名 */
     val extraOptions: Map<String, String> = emptyMap()
-)
+) {
+    companion object {
+        /**
+         * 随包引擎的皮卡鱼版本。
+         *
+         * 这个字符串只用于**告诉用户去哪一版拿权重** —— 皮卡鱼的 nnue 与引擎强绑定，
+         * 换一个 release 就拒绝加载，而官方页面默认展示最新版。所以「用最新的权重」
+         * 反而是一个会踩的坑，得把版本号摆到用户眼前。
+         * 换引擎时这里、`tools/fetch_assets.py` 的 PIKAFISH_VERSION 必须一起改。
+         */
+        const val VERSION = "2026-09-06"
+    }
+}

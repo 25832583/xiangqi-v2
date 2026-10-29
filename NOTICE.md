@@ -15,9 +15,11 @@ Copyright (C) 2026 25832583
    许可：GNU General Public License v3
    来源：https://github.com/official-pikafish/Pikafish
          https://www.pikafish.com
-   本项目使用的版本：2026-01-02（arm64 构建）
+   本项目使用的版本：2026-09-06（官方 Release 内的 Pikafish-Android-arm64-universal，
+                     原样使用，未修改）
    源码获取：https://github.com/official-pikafish/Pikafish
-            下载源码后 `cd src && make -j profile-build ARCH=armv8` 即可复现同架构二进制。
+            自建 Android 二进制的步骤见官方 Wiki：
+            https://github.com/official-pikafish/Pikafish/wiki/Compiling-from-source
 
    Pikafish 是 Stockfish 的衍生物，继承 GPL v3。依据 GPL v3 第 6 条，本项目
    在分发包含 Pikafish 的 APK 时提供其源码获取方式（见上）。本项目未修改
@@ -70,7 +72,7 @@ Copyright (C) 2026 25832583
    许可：Apache-2.0（见上文第一部分第 6 条）
 
 2. pikafish 与 pikafish.nnue
-   由 fetch_assets.py 从皮卡鱼官方 Release 拉取指定版本（2026-01-02），
+   由 fetch_assets.py 从皮卡鱼官方 Release 拉取指定版本（当前为 2026-09-06），
    许可见第一部分第 1、2 条。
 
 3. board_locator_v1.onnx（棋盘框兜底定位，约 10MB）—— **无法自动获取**

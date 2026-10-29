@@ -95,8 +95,25 @@ class AppGraph(context: Context) {
         AnalysisPipeline(
             recognizer = recognizer,
             locator = engineLocator,
-            config = { settings.engineConfig() }
+            config = { settings.engineConfig() },
+            onEngineDegraded = { engineDegradedReason = it }
         )
+    }
+
+    /**
+     * 引擎被迫以无权重模式运行时记下的原因；null 表示正常。
+     *
+     * 为什么需要它：权重文件在、体积也对，但网络结构跟引擎对不上时，引擎会拒绝加载
+     * 并自杀。降级后功能照常，界面上「NNUE 权重 ▌ 50.7MB」还是绿的 —— 不说一句，
+     * 用户会以为棋力问题出在识别或设置上。见 [com.xiangqi.v2.engine.WeightIncompatibleException]。
+     */
+    @Volatile
+    var engineDegradedReason: String? = null
+        private set
+
+    /** 换了权重后清掉降级标记，让下次分析重新判定一次。 */
+    fun clearEngineDegraded() {
+        engineDegradedReason = null
     }
 
     /** 采集源。无障碍服务实例随时可能被用户关掉，所以每次抓帧都重新取。 */

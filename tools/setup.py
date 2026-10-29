@@ -323,7 +323,7 @@ def _build_hint(code: int) -> str:
         "  - 卡住十几分钟没输出后失败：Gradle 在联网找 JDK。用 --jdk 指定本机 JDK 25\n"
         "  - SDK location not found：用 --sdk 指定 SDK，或检查 local.properties\n"
         "  - 缺 platform android-34：在 Android Studio 的 SDK Manager 里装 Android 14 (API 34)\n"
-        "  - 体积异常（明显大于 95MB）：加 --clean 重来\n"
+        "  - 体积异常（明显大于 93MB）：加 --clean 重来\n"
         f"完整日志在上面的输出里（退出码 {code}）。"
     )
 
@@ -445,10 +445,10 @@ def main() -> int:
     # 两种"比预期小"的原因完全不同，别混成一句话
     locator = ROOT / "app" / "src" / "main" / "assets" / "board_locator_v1.onnx"
     if size < 60_000_000:
-        warn("这个包偏小，多半缺 NNUE 权重（完整包约 95MB）。引擎会退到无权重模式，")
+        warn("这个包偏小，多半缺 NNUE 权重（完整包约 93MB）。引擎会退到无权重模式，")
         warn("识别不受影响，但棋力明显下降。跑一次不带 --check 的 fetch_assets.py 补上。")
     elif not locator.is_file():
-        info("比 95MB 略小是正常的：board_locator_v1.onnx 上游没有许可文件、不能随仓库分发，")
+        info("比 93MB 略小是正常的：board_locator_v1.onnx 上游没有许可文件、不能随仓库分发，")
         info("所以自动备料会跳过它。缺它只少一层棋盘框兜底，识别照常。")
 
     print("\n装到手机：")

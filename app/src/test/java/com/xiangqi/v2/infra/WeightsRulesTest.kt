@@ -1,8 +1,10 @@
 package com.xiangqi.v2.infra
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -18,8 +20,8 @@ class WeightsRulesTest {
 
     @Test
     fun `已知权重的体积与文件头通过`() {
-        // 与 fetch_assets.py 落位的 pikafish.nnue 一致：53,212,941 字节
-        assertNull(WeightsRules.check(53_212_941L, zstdHead))
+        // 与 fetch_assets.py 落位的 pikafish.nnue 一致：50,706,378 字节（2026-09-06 版）
+        assertNull(WeightsRules.check(50_706_378L, zstdHead))
     }
 
     @Test
@@ -37,15 +39,15 @@ class WeightsRulesTest {
     @Test
     fun `文件头不对被拒`() {
         val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
-        val reason = WeightsRules.check(53_212_941L, png)
+        val reason = WeightsRules.check(50_706_378L, png)
         assertNotNull(reason)
         assertEquals(true, reason!!.contains("NNUE"))
     }
 
     @Test
     fun `文件头不足四字节被拒而不是越界`() {
-        assertNotNull(WeightsRules.check(53_212_941L, byteArrayOf(0x28, 0xB5.toByte())))
-        assertNotNull(WeightsRules.check(53_212_941L, ByteArray(0)))
+        assertNotNull(WeightsRules.check(50_706_378L, byteArrayOf(0x28, 0xB5.toByte())))
+        assertNotNull(WeightsRules.check(50_706_378L, ByteArray(0)))
     }
 
     @Test
@@ -55,7 +57,41 @@ class WeightsRulesTest {
 
     @Test
     fun `体积按一位小数显示`() {
-        assertEquals("53.2MB", WeightsRules.mb(53_212_941L))
+        assertEquals("50.7MB", WeightsRules.mb(50_706_378L))
         assertEquals("0.0MB", WeightsRules.mb(0L))
+    }
+
+    // ---- 引擎自述里的「权重加载失败」 ----
+
+    /**
+     * 这一段判据决定「出错时该不该降级」。误判成权重问题的代价是丢掉一份本来能用的
+     * 权重、棋力白白掉一大截，所以「不该命中」的用例和「该命中」的一样重要。
+     */
+    @Test
+    fun `认出皮卡鱼拒绝加载权重的自述`() {
+        val lines = listOf(
+            "info string ERROR: Network evaluation parameters compatible with the engine must be available.",
+            "info string ERROR: The network file /data/user/0/x/files/engine/pikafish.nnue was not loaded successfully.",
+            "info string ERROR: The engine will be terminated now.",
+        )
+        assertTrue(WeightsRules.looksLikeWeightMismatch(lines))
+    }
+
+    @Test
+    fun `别的启动失败不会被当成权重问题`() {
+        val lines = listOf(
+            "info string Available processors: 0-7",
+            "info string Using 4 threads",
+            "info string ERROR: Illegal instruction",
+        )
+        assertFalse(WeightsRules.looksLikeWeightMismatch(lines))
+    }
+
+    @Test
+    fun `大小写不影响判断，空输入不命中`() {
+        assertTrue(
+            WeightsRules.looksLikeWeightMismatch(listOf("INFO STRING ERROR: EVALFILE not found"))
+        )
+        assertFalse(WeightsRules.looksLikeWeightMismatch(emptyList()))
     }
 }

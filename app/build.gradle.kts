@@ -4,14 +4,17 @@ plugins {
 }
 
 /**
- * 是否把 NNUE 权重（`pikafish.nnue`，53MB）打进 APK。
+ * 是否把 NNUE 权重（`pikafish.nnue`，50.7MB）打进 APK。
  *
  * 默认打进去 —— 本机开发不想每次都手动导入一遍。
- * 对外分发时必须关掉：`./gradlew assembleRelease -PbundleNnue=false`。
+ * 对外分发时关掉：`./gradlew clean assembleDebug -PbundleNnue=false`。
+ * **`clean` 不能省**：这个开关改的是资源过滤规则，AGP 没把它算进增量输入，
+ * 在已有完整包产物的工程上直接重建，拿到的还是一个 93MB、权重照旧在内的包。
  *
  * 为什么：`pikafish.nnue` 的条款是「仅限个人非商业使用」，与引擎代码的 GPL 是两回事，
  * 把它塞进公开分发的 APK 就是在再分发它。引擎二进制（GPL）可以随包给，权重不行。
  * 关掉之后 App 仍能运行，只是引擎以无权重模式起步，用户需要自己从皮卡鱼官方取一份导入。
+ * 注意那份权重的版本必须与 [com.xiangqi.v2.config.EngineConfig.VERSION] 一致，否则引擎拒收。
  *
  * 顺带把 `board_locator_v1.onnx` 也排除：上游仓库没有许可文件（保留全部权利），
  * 同样不能随发行包分发。缺了它只是少一层兜底（退回棋子包络反推），不影响可用性。

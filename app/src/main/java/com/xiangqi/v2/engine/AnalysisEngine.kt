@@ -30,7 +30,18 @@ data class EngineAnalysis(
 }
 
 /** 分析失败的原因，调用方据此给出不同提示。 */
-class EngineException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class EngineException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * 权重与引擎版本对不上（或权重文件损坏），引擎加载时自杀。
+ *
+ * 单独成类是因为它的**处理方式不同**：别的启动失败只能往上报，这一类可以退一步 ——
+ * 丢掉权重、以无权重模式把引擎跑起来，功能仍可用（棋力掉）。皮卡鱼的 nnue 与引擎
+ * 是强绑定的（网络结构决定加载，换一个版本就拒绝），而「从官方 release 下最新权重」
+ * 正是用户最自然的动作，撞上的概率不低。
+ */
+class WeightIncompatibleException(message: String, cause: Throwable? = null) :
+    EngineException(message, cause)
 
 /**
  * 局面分析引擎。

@@ -63,7 +63,9 @@ class AnalysisPipeline(
     private val recognizer: BoardRecognizer,
     private val locator: EngineLocator,
     private val config: () -> EngineConfig,
-    private val tag: String = LogTags.PANEL
+    private val tag: String = LogTags.PANEL,
+    /** 引擎因权重不可用而降级时回调，见 [WeightIncompatibleException]。 */
+    private val onEngineDegraded: (String) -> Unit = {}
 ) {
 
     @Volatile
@@ -164,7 +166,7 @@ class AnalysisPipeline(
                 engine?.takeIf { it.ready && engineRevision == revision } ?: run {
                     runCatching { engine?.close() }
                     engine = null
-                    val created = UciEngineFactory(locator, cfg, tag).create()
+                    val created = UciEngineFactory(locator, cfg, tag, onEngineDegraded).create()
                     engineRevision = revision
                     engine = created
                     created

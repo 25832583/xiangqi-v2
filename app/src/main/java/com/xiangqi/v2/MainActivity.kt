@@ -22,6 +22,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import com.xiangqi.v2.config.EngineConfig
 import com.xiangqi.v2.config.SettingsStore
 import com.xiangqi.v2.core.Fen
 import com.xiangqi.v2.core.Side
@@ -499,12 +500,15 @@ class MainActivity : Activity() {
         val ready = graph.weightsReady()
         // 包里带来的那份还没解压时体积是 0，这时说「包内」比说「0.0MB」诚实
         val localBytes = graph.weights.sizeBytes()
+        val degraded = graph.engineDegradedReason
         weightsStatus.text = when {
+            // 文件在、体积也对，但引擎拒收 —— 只写体积会让人以为一切正常
+            degraded != null -> "▌ 版本不匹配"
             localBytes > 0 -> "▌ " + WeightsRules.mb(localBytes)
             ready -> "▌ 包内"
             else -> "▌ 未导入"
         }
-        weightsStatus.setTextColor(if (ready) Hud.OK else Hud.WARN)
+        weightsStatus.setTextColor(if (ready && degraded == null) Hud.OK else Hud.WARN)
         weightsChip.text = if (ready) "替换" else "导入"
     }
 
@@ -514,8 +518,11 @@ class MainActivity : Activity() {
             AlertDialog.Builder(this)
                 .setTitle("导入 NNUE 权重")
                 .setMessage(
-                    "需要 pikafish.nnue（约 53MB），可从皮卡鱼官方 release 的 Android 包中解出。\n\n" +
-                        "不导入也能用，但引擎以无权重模式运行，棋力明显下降。"
+                    "需要 pikafish.nnue（约 50.7MB），从皮卡鱼官方 release 的包里解出。\n\n" +
+                        "版本必须对得上：本机引擎是 ${EngineConfig.VERSION}，权重也只用同一次发布里的那份。" +
+                        "官方页面排最前面的是最新版，直接下它会不匹配，请翻到 ${EngineConfig.VERSION} 那一版。\n\n" +
+                        "版本不对时引擎会拒绝加载，App 会自动退回无权重模式：功能照常，棋力明显下降。\n\n" +
+                        "不导入也能用，同样是无权重模式。"
                 )
                 .setPositiveButton("选择文件") { _, _ -> openWeightsPicker() }
                 .setNegativeButton("取消", null)
@@ -547,6 +554,8 @@ class MainActivity : Activity() {
             } else {
                 // 引擎可能已经以「无权重」起过了，进程里的 EvalFile 不会自己重读
                 graph.pipeline.releaseEngine()
+                // 换了一份权重，上一轮「版本不匹配」的结论要作废，让下次分析重新判定
+                graph.clearEngineDegraded()
                 toast("权重已导入")
             }
             refreshWeights()
