@@ -36,8 +36,11 @@ class SettingsStore(context: Context) {
      *
      * 引擎收到的是 `go depth N movetime M`，先到者生效：真正兜住"别卡太久"的是思考时间
      * （[moveTimeMs]），深度只决定"够快算完的局面能算多深"。所以调高深度不会让复杂局面
-     * 更慢，只会让简单局面把时间用满 —— 这正是默认值从 12 提到 18 的原因：
-     * 实测 depth 12 只要 4 万节点（手机约 0.1 秒），2500ms 的预算基本在空转。
+     * 更慢，只会让简单局面把时间用满。
+     *
+     * 默认值一路 12 → 18 → 22，都是同一个原因：**上限比时间预算先到，剩下的预算就白扔了**。
+     * 实测 18 层在桌面单线程只要 0.17~0.68 秒（手机约慢三倍），2500ms 里有大半没用上。
+     * 详见 [DepthDefault]。
      */
     var depth: Int
         get() = prefs.getInt(KEY_DEPTH, DEFAULT_DEPTH).coerceIn(MIN_DEPTH, MAX_DEPTH)
@@ -140,7 +143,7 @@ class SettingsStore(context: Context) {
     companion object {
         const val MIN_DEPTH = 6
         /**
-         * 上限从 20 提到 24：默认已经 18，若上限仍是 20，"深一点"只按得动两次。
+         * 上限 24：默认已经 22，再往上按一次就没空间了。
          * 调高上限本身不会拖慢局面 —— `go depth N movetime M` 里 movetime 先到就先返回。
          */
         const val MAX_DEPTH = 24
@@ -152,6 +155,14 @@ class SettingsStore(context: Context) {
 
         const val MIN_HASH = 8
         const val MAX_HASH = 256
+        /**
+         * 32MB。**实测调大没有收益，别指望它提棋力。**
+         *
+         * 同一局面各给 2500ms，Hash 16 与 256 得到的深度一样（d23 vs d22、d28 vs d29 → 噪声级），
+         * 冷启动与置换表已热两种情况都是如此。原因是单次搜索 250 万节点、32MB 装得下，
+         * 而本应用同一个盘面不会重复搜（[com.xiangqi.v2.pipeline.BoardWatcher] 按盘面指纹去重），
+         * 跨走法真正能复用的置换表信息很有限。上限留着 256 只是给愿意自己试的人。
+         */
         const val DEFAULT_HASH = 32
 
         const val MIN_INTERVAL = 400
